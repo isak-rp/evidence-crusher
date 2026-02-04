@@ -1,0 +1,38 @@
+.venv/
+__pycache__/
+.env
+.git/
+# --- SISTEMA DE CONTROL DE VERSIONES ---
+.git
+.gitignore
+
+# --- PYTHON Y ENTORNOS VIRTUALES (¡CRÍTICO!) ---
+# Nunca copies el venv local, el contenedor creará el suyo propio
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- VARIABLES DE ENTORNO Y SECRETOS ---
+# Docker debe leer esto al arrancar, no copiarlos dentro de la imagen fija
+.env
+.env.local
+
+# --- ARCHIVOS DE SISTEMA Y IDE ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- DATOS LOCALES Y TEMPORALES ---
+# No queremos "quemar" los PDFs de prueba dentro del código de la aplicación
+uploaded_files/
+data/
+logs/
+
+# --- DOCUMENTACIÓN IRRELEVANTE PARA PRODUCCIÓN ---
+README.md
+docs/
+docker-compose.yml
