@@ -1,9 +1,11 @@
 """Minimal FastAPI application for Evidence Crusher.
 
 Este módulo expone un endpoint de ping que verifica la
-conectividad con la base de datos PostgreSQL.
+conectividad con la base de datos PostgreSQL y un endpoint
+de prueba para la lógica legal (LFT).
 """
 
+from decimal import Decimal
 from typing import Any
 
 import os
@@ -13,6 +15,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from psycopg2 import Error as PsycopgError
 from psycopg2.extras import RealDictCursor
+
+from app.core.legal_constants import (
+    INDEMNIZACION_CONSTITUCIONAL_MESES,
+    LIQUIDACION_ESTIMACION_DIAS_POR_ANIO,
+)
+from app.schemas.legal_ontology import PerfilActor
 
 
 class PingResponse(BaseModel):
@@ -79,3 +87,61 @@ async def ping() -> PingResponse:
 
     database_status: str = "ok" if row and row.get("ok") == 1 else "unknown"
     return PingResponse(message="pong", database=database_status)
+
+
+# ---------------------------------------------------------------------------
+# Test de lógica legal (LFT): antigüedad y estimación de liquidación
+# ---------------------------------------------------------------------------
+class TestLegalLogicResponse(BaseModel):
+    """Respuesta del endpoint de prueba de lógica legal.
+
+    Incluye antigüedad calculada y estimación básica (Art. 48 + días por año).
+    """
+
+    antiguedad_anios: float
+    liquidacion_estimada_mxn: Decimal
+    detalle: str
+
+
+@app.post("/test-legal-logic/", response_model=TestLegalLogicResponse)
+async def test_legal_logic(perfil: PerfilActor) -> TestLegalLogicResponse:
+    """Prueba la lógica legal: calcula antigüedad y estima liquidación básica.
+
+    Fórmula de estimación: 3 meses de salario (Art. 48 LFT) + 20 días de
+    salario por cada año de antigüedad, usando constantes de legal_constants.
+    Solo para verificación matemática, no sustituye el cálculo legal completo.
+
+    Args:
+        perfil: Datos del trabajador (fechas, salarios).
+
+    Returns:
+        TestLegalLogicResponse: Antigüedad en años y monto estimado en MXN.
+    """
+    # Salario mensual: integrado si existe, si no salario_diario * 30 (LFT)
+    salario_mensual: Decimal = (
+        perfil.salario_integrado
+        if perfil.salario_integrado is not None
+        else perfil.salario_diario * 30
+    )
+    # Parte por indemnización constitucional (Art. 48 — 3 meses)
+    parte_meses: Decimal = (
+        Decimal(INDEMNIZACION_CONSTITUCIONAL_MESES) * salario_mensual
+    )
+    # Parte por días por año (estimación: 20 días por año)
+    parte_dias: Decimal = (
+        perfil.salario_diario
+        * LIQUIDACION_ESTIMACION_DIAS_POR_ANIO
+        * Decimal(str(perfil.antiguedad_anios))
+    )
+    liquidacion_estimada: Decimal = parte_meses + parte_dias
+
+    detalle: str = (
+        f"Antigüedad: {perfil.antiguedad_anios} años. "
+        f"3 meses (Art. 48): {parte_meses} MXN. "
+        f"20 días/año: {parte_dias} MXN. Total estimado: {liquidacion_estimada} MXN."
+    )
+    return TestLegalLogicResponse(
+        antiguedad_anios=perfil.antiguedad_anios,
+        liquidacion_estimada_mxn=liquidacion_estimada,
+        detalle=detalle,
+    )

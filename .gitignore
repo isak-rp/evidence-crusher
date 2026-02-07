@@ -39,3 +39,6 @@ Thumbs.db
 # --- 7. DOCKER ---
 # A veces docker genera logs o carpetas temporales
 .docker/
+
+
+.cursorrules
