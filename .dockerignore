@@ -36,3 +36,7 @@ logs/
 README.md
 docs/
 docker-compose.yml
+
+.gitignore
+.cursorrules
+
