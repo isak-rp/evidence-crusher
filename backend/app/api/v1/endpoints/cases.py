@@ -14,7 +14,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import Case, Document
 from app.db.session import get_db
-from app.schemas.cases import CaseCreate, CaseResponse, DocumentResponse
+from app.schemas.cases import (
+    CaseCreate,
+    CaseResponse,
+    DocumentResponse,
+    CaseMetadataResponse,
+)
+from app.services.extraction import ExtractionService
 
 router = APIRouter(tags=["cases"])
 
@@ -34,7 +40,7 @@ def create_case(payload: CaseCreate, db: Session = Depends(get_db)) -> CaseRespo
 def list_cases(db: Session = Depends(get_db)) -> list[CaseResponse]:
     statement = (
         select(Case)
-        .options(selectinload(Case.documents))
+        .options(selectinload(Case.documents), selectinload(Case.metadata_info))
         .order_by(Case.created_at.desc())
     )
     cases = db.execute(statement).scalars().all()
@@ -46,7 +52,7 @@ def get_case(case_id: UUID, db: Session = Depends(get_db)) -> CaseResponse:
     statement = (
         select(Case)
         .where(Case.id == case_id)
-        .options(selectinload(Case.documents))
+        .options(selectinload(Case.documents), selectinload(Case.metadata_info))
     )
     case = db.execute(statement).scalars().first()
     if case is None:
@@ -90,3 +96,13 @@ def upload_document(
     db.commit()
     db.refresh(document)
     return DocumentResponse.model_validate(document)
+
+
+@router.post("/{case_id}/extract-metadata")
+def extract_metadata_endpoint(case_id: UUID, db: Session = Depends(get_db)):
+    """Analiza documentos y extrae fechas/montos automáticamente."""
+    try:
+        data = ExtractionService.extract_case_metadata(db, case_id)
+        return {"status": "success", "data": CaseMetadataResponse.model_validate(data)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

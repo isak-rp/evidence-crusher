@@ -1,204 +1,202 @@
-﻿"""Streamlit page for Case Management Core."""
-
-from __future__ import annotations
-
-from typing import Any, Dict, List
+﻿import time
+import streamlit as st
+import requests
 import os
 
-import pandas as pd
-import requests
-import streamlit as st
+# Configuración
+API_URL = "http://backend:8000/api/v1/cases"
+DOCS_URL = "http://backend:8000/api/v1/documents"
+
+st.set_page_config(page_title="Gestión de Expediente", layout="wide")
 
 
-BACKEND_URL: str = os.getenv("BACKEND_URL", "http://backend:8000")
-API_URL = f"{BACKEND_URL}/api/v1/cases"
+def get_with_retry(url, *, timeout=3, retries=3):
+    delay = 1.0
+    for attempt in range(1, retries + 1):
+        try:
+            return requests.get(url, timeout=timeout)
+        except requests.exceptions.ConnectionError:
+            if attempt == retries:
+                raise
+            time.sleep(delay)
+            delay *= 2
 
 
-def _handle_http_error(exc: requests.RequestException) -> None:
-    st.error(f"Error al contactar con el backend: {exc}")
+def post_with_retry(url, *, data=None, files=None, json=None, timeout=30, retries=3):
+    delay = 1.0
+    for attempt in range(1, retries + 1):
+        try:
+            return requests.post(url, data=data, files=files, json=json, timeout=timeout)
+        except requests.exceptions.ConnectionError:
+            if attempt == retries:
+                raise
+            time.sleep(delay)
+            delay *= 2
 
 
-def create_case(title: str, description: str) -> Dict[str, Any]:
-    response = requests.post(
-        f"{API_URL}/",
-        json={"title": title, "description": description},
-        timeout=10,
-    )
-    response.raise_for_status()
-    return response.json()
+# --- SIDEBAR: GESTIÓN DE CASOS ---
+st.sidebar.header("📁 Mis Expedientes")
 
+# 1. Intentar cargar casos existentes
+cases = []
+try:
+    res = get_with_retry(API_URL, timeout=3, retries=2)
+    if res.status_code == 200:
+        cases = res.json()
+except Exception:
+    st.sidebar.error("⚠️ Error conectando al backend.")
 
-def fetch_cases() -> List[Dict[str, Any]]:
-    response = requests.get(f"{API_URL}/", timeout=10)
-    response.raise_for_status()
-    return response.json()
-
-
-def fetch_case_detail(case_id: str) -> Dict[str, Any]:
-    response = requests.get(f"{API_URL}/{case_id}", timeout=10)
-    response.raise_for_status()
-    return response.json()
-
-
-def upload_document(case_id: str, file_bytes: bytes, filename: str, doc_type: str) -> Dict[str, Any]:
-    files = {"file": (filename, file_bytes, "application/pdf")}
-    data = {"doc_type": doc_type}
-    response = requests.post(
-        f"{API_URL}/{case_id}/documents/",
-        files=files,
-        data=data,
-        timeout=20,
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-st.set_page_config(page_title="Expedientes - Evidence Crusher")
-st.title("Expedientes")
-
-tab_new, tab_explorer = st.tabs(["Nuevo Caso", "Explorador"])
-
-with tab_new:
-    st.subheader("Crear expediente")
-    with st.form("create_case_form"):
-        title = st.text_input("Título del caso")
-        description = st.text_area("Descripción")
-        submitted = st.form_submit_button("Crear Caso")
-
-    if submitted:
-        if not title.strip():
-            st.warning("El título es obligatorio.")
+# 2. Botón para CREAR NUEVO CASO (¡El Salvavidas!)
+with st.sidebar.expander("➕ Nuevo Expediente", expanded=(len(cases) == 0)):
+    new_case_title = st.text_input("Nombre del Cliente/Caso:")
+    if st.button("Crear Expediente"):
+        if new_case_title:
+            with st.spinner("Creando..."):
+                # Crear caso en el backend
+                try:
+                    r = post_with_retry(
+                        API_URL,
+                        json={"title": new_case_title, "description": "Creado desde App"},
+                        timeout=10,
+                        retries=3,
+                    )
+                    if r.status_code == 200:
+                        st.success("¡Creado!")
+                        st.rerun() # Recargar para que aparezca en la lista
+                    else:
+                        st.error("Error al crear el expediente.")
+                except Exception:
+                    st.error("⚠️ Error conectando al backend.")
         else:
-            try:
-                case = create_case(title.strip(), description.strip())
-            except requests.RequestException as exc:
-                _handle_http_error(exc)
-            else:
-                st.success("Expediente creado.")
-                st.json(case)
+            st.warning("Escribe un nombre.")
 
-with tab_explorer:
-    st.subheader("Explorador de expedientes")
+st.sidebar.divider()
+
+# 3. Selector de Casos
+if not cases:
+    st.info("👈 ¡Tu base de datos está limpia! Crea tu primer expediente en el menú de la izquierda.")
+    st.stop() # Detener ejecución aquí si no hay casos
+
+# Si hay casos, mostramos el selector
+selected_case_id = st.sidebar.radio(
+    "Seleccionar:", 
+    [c["id"] for c in cases], 
+    format_func=lambda x: next((c["title"] for c in cases if c["id"] == x), x)
+)
+
+if selected_case_id:
+    # --- DETALLES DEL CASO SELECCIONADO ---
+    case_res = None
     try:
-        cases = fetch_cases()
-    except requests.RequestException as exc:
-        _handle_http_error(exc)
-        cases = []
+        case_res = get_with_retry(f"{API_URL}/{selected_case_id}", timeout=3, retries=2)
+    except Exception:
+        st.error("⚠️ Error conectando al backend.")
 
-    if cases:
-        df = pd.DataFrame(
-            [
-                {
-                    "id": case["id"],
-                    "title": case["title"],
-                    "status": case["status"],
-                    "created_at": case["created_at"],
-                }
-                for case in cases
-            ]
-        )
-        st.dataframe(df, use_container_width=True)
-
-        case_options = {f"{case['title']} ({case['id']})": case["id"] for case in cases}
-        selected_label = st.selectbox("Selecciona un caso", list(case_options.keys()))
-        selected_case_id = case_options.get(selected_label)
-
-        if selected_case_id:
-            try:
-                detail = fetch_case_detail(selected_case_id)
-            except requests.RequestException as exc:
-                _handle_http_error(exc)
-                detail = {}
-
-            if detail:
-                st.markdown("**Detalles del caso**")
-                st.json(detail)
-
-                st.markdown("**Subir documento (PDF)**")
-                with st.form("upload_document_form"):
-                    doc_type = st.text_input("Tipo de documento (DEMANDA, PRUEBA, CONTRATO...)")
-                    uploaded_file = st.file_uploader("Archivo PDF", type=["pdf"])
-                    upload_submitted = st.form_submit_button("Subir Documento")
-
-                if upload_submitted:
-                    if not doc_type.strip():
-                        st.warning("El tipo de documento es obligatorio.")
-                    elif uploaded_file is None:
-                        st.warning("Debes seleccionar un PDF.")
-                    else:
-                        try:
-                            upload_document(
-                                selected_case_id,
-                                uploaded_file.getvalue(),
-                                uploaded_file.name,
-                                doc_type.strip(),
-                            )
-                        except requests.RequestException as exc:
-                            _handle_http_error(exc)
+    if case_res is not None and case_res.status_code == 200:
+        case = case_res.json()
+        st.title(f"📂 {case['title']}")
+        
+        # --- A. FICHA TÉCNICA (EXTRACCIÓN IA) ---
+        st.markdown("### 🕵️ Ficha Técnica Automática")
+        meta = case.get("metadata_info")
+        
+        col_metrics, col_actions = st.columns([3, 1])
+        with col_metrics:
+            c1, c2, c3 = st.columns(3)
+            if meta:
+                c1.metric("📅 Ingreso", meta.get("start_date") or "--")
+                c2.metric("🛑 Baja/Despido", meta.get("end_date") or "--")
+                c3.metric("💰 Salario Diario", f"${meta.get('daily_salary')}" if meta.get("daily_salary") else "--")
+            else:
+                st.info("Sin datos analizados.")
+        
+        with col_actions:
+            if st.button("🔍 Analizar Caso", type="primary"):
+                with st.spinner("La IA está leyendo el expediente..."):
+                    try:
+                        res = post_with_retry(
+                            f"{API_URL}/{selected_case_id}/extract-metadata",
+                            timeout=30,
+                            retries=3,
+                        )
+                        if res.status_code == 200:
+                            st.rerun()
                         else:
-                            st.success("Documento subido.")
-                            detail = fetch_case_detail(selected_case_id)
+                            st.error("Error al analizar el caso.")
+                    except Exception:
+                        st.error("⚠️ Error conectando al backend.")
 
-                st.write("📄 **Documentos en este expediente:**")
+        st.divider()
 
-                detail_res = requests.get(f"{API_URL}/{selected_case_id}")
-                if detail_res.status_code == 200:
-                    docs = detail_res.json().get("documents", [])
-                    if docs:
-                        for doc in docs:
-                            col1, col2, col3 = st.columns([3, 1, 1])
-                            with col1:
-                                st.markdown(f"- 📄 **{doc['doc_type']}**: {doc['filename']}")
+        # --- B. GESTIÓN DE DOCUMENTOS ---
+        col_upload, col_list = st.columns([1, 2])
 
-                            with col2:
-                                if st.button("⚡ Procesar", key=f"proc_{doc['id']}"):
-                                    with st.spinner("Leyendo documento..."):
-                                        proc_res = requests.post(
-                                            f"{BACKEND_URL}/api/v1/documents/{doc['id']}/process",
-                                            timeout=30,
-                                        )
-                                        if proc_res.status_code == 200:
-                                            data = proc_res.json()
-                                            st.success(
-                                                f"¡Leído! ({data['strategy']}) - {data['chunks']} fragmentos."
-                                            )
-                                        else:
-                                            st.error("Error al procesar.")
+        with col_upload:
+            st.subheader("Subir Documento")
+            uploaded_file = st.file_uploader("Archivo PDF/Imagen", type=["pdf", "png", "jpg", "jpeg"])
+            
+            if uploaded_file and st.button("Guardar Archivo"):
+                with st.spinner("Subiendo..."):
+                    files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
+                    # Enviamos tipo "AUTO" para que el backend decida
+                    data = {"case_id": selected_case_id, "doc_type": "DETECTANDO..."}
+                    try:
+                        r = post_with_retry(
+                            f"{DOCS_URL}/",
+                            files=files,
+                            data=data,
+                            timeout=30,
+                            retries=3,
+                        )
+                        if r.status_code == 200:
+                            st.success("¡Subido!")
+                            st.rerun()
+                        else:
+                            st.error("Error al subir.")
+                    except Exception:
+                        st.error("⚠️ Error conectando al backend.")
 
-                            with col3:
-                                if st.button("🧠 Indexar", key=f"emb_{doc['id']}"):
-                                    with st.spinner("Generando vectores..."):
-                                        res = requests.post(
-                                            f"{BACKEND_URL}/api/v1/documents/{doc['id']}/embed",
-                                            timeout=60,
-                                        )
-                                        if res.status_code == 200:
-                                            st.success(
-                                                f"Indexado: {res.json()['chunks_embedded']} chunks"
-                                            )
-                                        else:
-                                            st.error("Error indexando")
-
-                            query = st.text_input(
-                                "Preguntar al documento:",
-                                key=f"search_{doc['id']}",
-                                placeholder="Ej: ¿Cuál es la fecha de ingreso?",
-                            )
-                            if query:
-                                payload = {"query": query, "limit": 3}
-                                res_search = requests.post(
-                                    f"{BACKEND_URL}/api/v1/documents/{doc['id']}/search",
-                                    json=payload,
-                                    timeout=60,
-                                )
-                                if res_search.status_code == 200:
-                                    results = res_search.json()
-                                    for r in results:
-                                        st.info(f"Pág {r['page']}: {r['text']}")
-                                else:
-                                    st.warning("Primero debes procesar e indexar el documento.")
-                            st.divider()
-                    else:
-                        st.info("No hay documentos cargados aún.")
-    else:
-        st.info("No hay expedientes registrados.")
+        with col_list:
+            st.subheader("Documentos del Caso")
+            docs = case.get("documents", [])
+            
+            if docs:
+                for doc in docs:
+                    with st.expander(f"📄 {doc.get('doc_type', 'DOC')} - {doc['filename']}"):
+                        c1, c2, c3 = st.columns(3)
+                        
+                        # Botón 1: OCR + Clasificación
+                        if c1.button("⚡ Procesar", key=f"ocr_{doc['id']}"):
+                            with st.spinner("Leyendo..."):
+                                try:
+                                    res = post_with_retry(
+                                        f"{DOCS_URL}/{doc['id']}/process",
+                                        timeout=60,
+                                        retries=3,
+                                    )
+                                    if res.status_code == 200:
+                                        data = res.json()
+                                        st.toast(f"Tipo detectado: {data.get('detected_type', 'OK')}")
+                                        st.rerun()
+                                    else:
+                                        st.error("Error al procesar.")
+                                except Exception:
+                                    st.error("⚠️ Error conectando al backend.")
+                        
+                        # Botón 2: Indexar (Embeddings)
+                        if c2.button("🧠 Indexar", key=f"emb_{doc['id']}"):
+                            with st.spinner("Vectorizando..."):
+                                try:
+                                    res = post_with_retry(
+                                        f"{DOCS_URL}/{doc['id']}/embed",
+                                        timeout=120,
+                                        retries=3,
+                                    )
+                                    if res.status_code == 200:
+                                        st.success("¡Listo!")
+                                    else:
+                                        st.error("Error indexando.")
+                                except Exception:
+                                    st.error("⚠️ Error conectando al backend.")
+            else:
+                st.info("No hay documentos cargados.")

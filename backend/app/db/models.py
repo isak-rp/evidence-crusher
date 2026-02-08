@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, date
 from uuid import UUID, uuid4
 
 # --- MODIFICACIÓN: Agregamos Integer y Text a los imports ---
@@ -38,6 +38,11 @@ class Case(Base):
     documents: Mapped[list["Document"]] = relationship(
         back_populates="case",
         cascade="all, delete-orphan",
+    )
+    metadata_info: Mapped["CaseMetadata | None"] = relationship(
+        back_populates="case",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
 
@@ -105,3 +110,28 @@ class DocumentChunk(Base):
     embedding: Mapped[list[float]] = mapped_column(Vector(384), nullable=True)
 
     document: Mapped[Document] = relationship(back_populates="chunks")
+
+
+class CaseMetadata(Base):
+    """Technical sheet extracted from case documents."""
+
+    __tablename__ = "case_metadata"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    case_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("cases.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    start_date: Mapped[date | None] = mapped_column(nullable=True)
+    end_date: Mapped[date | None] = mapped_column(nullable=True)
+    daily_salary: Mapped[float | None] = mapped_column(nullable=True)
+    extraction_status: Mapped[str] = mapped_column(String, nullable=False, default="PENDING")
+    is_verified: Mapped[bool] = mapped_column(nullable=False, default=False)
+
+    case: Mapped[Case] = relationship(back_populates="metadata_info")
