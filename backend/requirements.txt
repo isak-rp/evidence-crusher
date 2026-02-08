@@ -5,6 +5,10 @@ psycopg2-binary==2.9.9
 pydantic==2.6.0
 python-multipart==0.0.9
 python-dotenv==1.0.1
-# Futuras dependencias de IA (comentadas por ahora)
-# langchain
-# pgvector
+pdfplumber==0.10.3
+pytesseract==0.3.10
+
+# --- SPRINT 2: MOTORES DE INGESTA ---
+pdfplumber==0.10.3      # Para PDFs de texto nativo (rápido)
+pytesseract==0.3.10     # Conector Python para Tesseract OCR
+Pillow==10.2.0          # Procesamiento de imágenes para OCR

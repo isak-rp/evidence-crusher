@@ -10,7 +10,8 @@ import requests
 import streamlit as st
 
 
-BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
+BACKEND_URL: str = os.getenv("BACKEND_URL", "http://backend:8000")
+API_URL = f"{BACKEND_URL}/api/v1/cases"
 
 
 def _handle_http_error(exc: requests.RequestException) -> None:
@@ -19,7 +20,7 @@ def _handle_http_error(exc: requests.RequestException) -> None:
 
 def create_case(title: str, description: str) -> Dict[str, Any]:
     response = requests.post(
-        f"{BACKEND_URL}/cases/",
+        f"{API_URL}/",
         json={"title": title, "description": description},
         timeout=10,
     )
@@ -28,13 +29,13 @@ def create_case(title: str, description: str) -> Dict[str, Any]:
 
 
 def fetch_cases() -> List[Dict[str, Any]]:
-    response = requests.get(f"{BACKEND_URL}/cases/", timeout=10)
+    response = requests.get(f"{API_URL}/", timeout=10)
     response.raise_for_status()
     return response.json()
 
 
 def fetch_case_detail(case_id: str) -> Dict[str, Any]:
-    response = requests.get(f"{BACKEND_URL}/cases/{case_id}", timeout=10)
+    response = requests.get(f"{API_URL}/{case_id}", timeout=10)
     response.raise_for_status()
     return response.json()
 
@@ -43,7 +44,7 @@ def upload_document(case_id: str, file_bytes: bytes, filename: str, doc_type: st
     files = {"file": (filename, file_bytes, "application/pdf")}
     data = {"doc_type": doc_type}
     response = requests.post(
-        f"{BACKEND_URL}/cases/{case_id}/documents/",
+        f"{API_URL}/{case_id}/documents/",
         files=files,
         data=data,
         timeout=20,
@@ -53,20 +54,20 @@ def upload_document(case_id: str, file_bytes: bytes, filename: str, doc_type: st
 
 
 st.set_page_config(page_title="Expedientes - Evidence Crusher")
-st.title("Núcleo de Gestión de Expedientes")
+st.title("Expedientes")
 
 tab_new, tab_explorer = st.tabs(["Nuevo Caso", "Explorador"])
 
 with tab_new:
     st.subheader("Crear expediente")
     with st.form("create_case_form"):
-        title = st.text_input("Título del caso")
-        description = st.text_area("Descripción")
+        title = st.text_input("TÃ­tulo del caso")
+        description = st.text_area("DescripciÃ³n")
         submitted = st.form_submit_button("Crear Caso")
 
     if submitted:
         if not title.strip():
-            st.warning("El título es obligatorio.")
+            st.warning("El tÃ­tulo es obligatorio.")
         else:
             try:
                 case = create_case(title.strip(), description.strip())
@@ -138,12 +139,31 @@ with tab_explorer:
                             st.success("Documento subido.")
                             detail = fetch_case_detail(selected_case_id)
 
-                documents = detail.get("documents", [])
-                if documents:
-                    st.markdown("**Documentos registrados**")
-                    doc_df = pd.DataFrame(documents)
-                    st.dataframe(doc_df, use_container_width=True)
-                else:
-                    st.info("Este caso aún no tiene documentos.")
+                st.write("ðŸ“„ **Documentos en este expediente:**")
+
+                detail_res = requests.get(f"{API_URL}/{selected_case_id}")
+                if detail_res.status_code == 200:
+                    docs = detail_res.json().get("documents", [])
+                    if docs:
+                        for doc in docs:
+                            col1, col2 = st.columns([3, 1])
+                            with col1:
+                                st.markdown(f"- ðŸ“„ **{doc['doc_type']}**: {doc['filename']}")
+                            with col2:
+                                if st.button("âš¡ Procesar", key=doc["id"]):
+                                    with st.spinner("Leyendo documento..."):
+                                        proc_res = requests.post(
+                                            f"{BACKEND_URL}/api/v1/documents/{doc['id']}/process",
+                                            timeout=30,
+                                        )
+                                        if proc_res.status_code == 200:
+                                            data = proc_res.json()
+                                            st.success(
+                                                f"Â¡LeÃ­do! ({data['strategy']}) - {data['chunks']} fragmentos."
+                                            )
+                                        else:
+                                            st.error("Error al procesar.")
+                    else:
+                        st.info("No hay documentos cargados aÃºn.")
     else:
         st.info("No hay expedientes registrados.")

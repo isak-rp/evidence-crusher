@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+# --- MODIFICACIÓN: Agregamos Integer y Text a los imports ---
+from sqlalchemy import DateTime, ForeignKey, String, func, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -64,3 +65,39 @@ class Document(Base):
     )
 
     case: Mapped[Case] = relationship(back_populates="documents")
+    
+    # --- MODIFICACIÓN SPRINT 2: Relación con los chunks ---
+    chunks: Mapped[list["DocumentChunk"]] = relationship(
+        back_populates="document", 
+        cascade="all, delete-orphan"
+    )
+
+
+# --- MODIFICACIÓN SPRINT 2: Nueva tabla para guardar texto extraído ---
+class DocumentChunk(Base):
+    """Stores extracted text chunks from documents."""
+
+    __tablename__ = "document_chunks"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    document_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    
+    # Metadatos físicos
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    # El contenido real
+    text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # Clasificación simple (HECHO, CLAUSULA, FECHA, GENERAL)
+    semantic_type: Mapped[str] = mapped_column(String, nullable=False, default="GENERAL")
+
+    document: Mapped[Document] = relationship(back_populates="chunks")

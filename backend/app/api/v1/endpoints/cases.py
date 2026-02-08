@@ -21,7 +21,7 @@ router = APIRouter(tags=["cases"])
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/app/uploaded_files"))
 
 
-@router.post("/cases/", response_model=CaseResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=CaseResponse, status_code=status.HTTP_201_CREATED)
 def create_case(payload: CaseCreate, db: Session = Depends(get_db)) -> CaseResponse:
     new_case = Case(title=payload.title, description=payload.description)
     db.add(new_case)
@@ -30,7 +30,7 @@ def create_case(payload: CaseCreate, db: Session = Depends(get_db)) -> CaseRespo
     return CaseResponse.model_validate(new_case)
 
 
-@router.get("/cases/", response_model=list[CaseResponse])
+@router.get("/", response_model=list[CaseResponse])
 def list_cases(db: Session = Depends(get_db)) -> list[CaseResponse]:
     statement = (
         select(Case)
@@ -41,7 +41,7 @@ def list_cases(db: Session = Depends(get_db)) -> list[CaseResponse]:
     return [CaseResponse.model_validate(case) for case in cases]
 
 
-@router.get("/cases/{case_id}", response_model=CaseResponse)
+@router.get("/{case_id}", response_model=CaseResponse)
 def get_case(case_id: UUID, db: Session = Depends(get_db)) -> CaseResponse:
     statement = (
         select(Case)
@@ -55,7 +55,7 @@ def get_case(case_id: UUID, db: Session = Depends(get_db)) -> CaseResponse:
 
 
 @router.post(
-    "/cases/{case_id}/documents/",
+    "/{case_id}/documents/",
     response_model=DocumentResponse,
     status_code=status.HTTP_201_CREATED,
 )

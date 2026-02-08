@@ -17,6 +17,7 @@ from psycopg2 import Error as PsycopgError
 from psycopg2.extras import RealDictCursor
 
 from app.api.v1.endpoints.cases import router as cases_router
+from app.api.v1.endpoints.documents import router as documents_router
 from app.core.legal_constants import (
     INDEMNIZACION_CONSTITUCIONAL_MESES,
     LIQUIDACION_ESTIMACION_DIAS_POR_ANIO,
@@ -63,7 +64,8 @@ def _get_db_connection() -> psycopg2.extensions.connection:
 
 app: FastAPI = FastAPI(title=os.getenv("PROJECT_NAME", "Evidence Crusher"))
 
-app.include_router(cases_router)
+app.include_router(cases_router, prefix="/api/v1/cases", tags=["Expedientes"])
+app.include_router(documents_router, prefix="/api/v1/documents", tags=["Documentos"])
 
 
 @app.on_event("startup")

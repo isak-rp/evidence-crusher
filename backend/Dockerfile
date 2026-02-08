@@ -9,6 +9,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    tesseract-ocr \
+    tesseract-ocr-spa \
  && rm -rf /var/lib/apt/lists/*
 
 # Instalamos solo las dependencias de producción
