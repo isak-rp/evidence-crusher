@@ -1,4 +1,4 @@
-"""Streamlit page for Case Management Core."""
+﻿"""Streamlit page for Case Management Core."""
 
 from __future__ import annotations
 
@@ -61,13 +61,13 @@ tab_new, tab_explorer = st.tabs(["Nuevo Caso", "Explorador"])
 with tab_new:
     st.subheader("Crear expediente")
     with st.form("create_case_form"):
-        title = st.text_input("TÃ­tulo del caso")
-        description = st.text_area("DescripciÃ³n")
+        title = st.text_input("Título del caso")
+        description = st.text_area("Descripción")
         submitted = st.form_submit_button("Crear Caso")
 
     if submitted:
         if not title.strip():
-            st.warning("El tÃ­tulo es obligatorio.")
+            st.warning("El título es obligatorio.")
         else:
             try:
                 case = create_case(title.strip(), description.strip())
@@ -139,18 +139,19 @@ with tab_explorer:
                             st.success("Documento subido.")
                             detail = fetch_case_detail(selected_case_id)
 
-                st.write("ðŸ“„ **Documentos en este expediente:**")
+                st.write("📄 **Documentos en este expediente:**")
 
                 detail_res = requests.get(f"{API_URL}/{selected_case_id}")
                 if detail_res.status_code == 200:
                     docs = detail_res.json().get("documents", [])
                     if docs:
                         for doc in docs:
-                            col1, col2 = st.columns([3, 1])
+                            col1, col2, col3 = st.columns([3, 1, 1])
                             with col1:
-                                st.markdown(f"- ðŸ“„ **{doc['doc_type']}**: {doc['filename']}")
+                                st.markdown(f"- 📄 **{doc['doc_type']}**: {doc['filename']}")
+
                             with col2:
-                                if st.button("âš¡ Procesar", key=doc["id"]):
+                                if st.button("⚡ Procesar", key=f"proc_{doc['id']}"):
                                     with st.spinner("Leyendo documento..."):
                                         proc_res = requests.post(
                                             f"{BACKEND_URL}/api/v1/documents/{doc['id']}/process",
@@ -159,11 +160,45 @@ with tab_explorer:
                                         if proc_res.status_code == 200:
                                             data = proc_res.json()
                                             st.success(
-                                                f"Â¡LeÃ­do! ({data['strategy']}) - {data['chunks']} fragmentos."
+                                                f"¡Leído! ({data['strategy']}) - {data['chunks']} fragmentos."
                                             )
                                         else:
                                             st.error("Error al procesar.")
+
+                            with col3:
+                                if st.button("🧠 Indexar", key=f"emb_{doc['id']}"):
+                                    with st.spinner("Generando vectores..."):
+                                        res = requests.post(
+                                            f"{BACKEND_URL}/api/v1/documents/{doc['id']}/embed",
+                                            timeout=60,
+                                        )
+                                        if res.status_code == 200:
+                                            st.success(
+                                                f"Indexado: {res.json()['chunks_embedded']} chunks"
+                                            )
+                                        else:
+                                            st.error("Error indexando")
+
+                            query = st.text_input(
+                                "Preguntar al documento:",
+                                key=f"search_{doc['id']}",
+                                placeholder="Ej: ¿Cuál es la fecha de ingreso?",
+                            )
+                            if query:
+                                payload = {"query": query, "limit": 3}
+                                res_search = requests.post(
+                                    f"{BACKEND_URL}/api/v1/documents/{doc['id']}/search",
+                                    json=payload,
+                                    timeout=60,
+                                )
+                                if res_search.status_code == 200:
+                                    results = res_search.json()
+                                    for r in results:
+                                        st.info(f"Pág {r['page']}: {r['text']}")
+                                else:
+                                    st.warning("Primero debes procesar e indexar el documento.")
+                            st.divider()
                     else:
-                        st.info("No hay documentos cargados aÃºn.")
+                        st.info("No hay documentos cargados aún.")
     else:
         st.info("No hay expedientes registrados.")

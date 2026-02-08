@@ -1,38 +1,43 @@
-"""Database session utilities."""
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
-from typing import Generator
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
 
 from app.db.models import Base
 
+# Configuración de conexión
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://admin:legalpassword123@db:5432/legal_audit_db",
+)
 
-def _build_database_url() -> str:
-    user = os.getenv("POSTGRES_USER", "postgres")
-    password = os.getenv("POSTGRES_PASSWORD", "postgres")
-    host = os.getenv("POSTGRES_SERVER", "localhost")
-    port = os.getenv("POSTGRES_PORT", "5432")
-    db_name = os.getenv("POSTGRES_DB", "postgres")
-    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
-
-
-DATABASE_URL = _build_database_url()
-
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
-
-
-def get_db() -> Generator[Session, None, None]:
+def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+def init_db():
+    """Inicializa la base de datos creando las tablas."""
+    try:
+        # 1. ACTIVAR LA EXTENSIÓN VECTOR (El paso que faltaba)
+        with engine.connect() as connection:
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            connection.commit()
+            print("✅ Extensión 'vector' activada correctamente.")
+
+        # 2. CREAR TABLAS
+        Base.metadata.create_all(bind=engine)
+        print("✅ Tablas creadas correctamente.")
+
+    except Exception as e:
+        print(f"❌ Error inicializando DB: {e}")
+        raise e

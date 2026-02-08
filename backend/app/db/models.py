@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import DateTime, ForeignKey, String, func, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
 
 class Base(DeclarativeBase):
@@ -99,5 +100,8 @@ class DocumentChunk(Base):
     
     # Clasificación simple (HECHO, CLAUSULA, FECHA, GENERAL)
     semantic_type: Mapped[str] = mapped_column(String, nullable=False, default="GENERAL")
+
+    # Vector de embeddings (modelo local 384 dims)
+    embedding: Mapped[list[float]] = mapped_column(Vector(384), nullable=True)
 
     document: Mapped[Document] = relationship(back_populates="chunks")
