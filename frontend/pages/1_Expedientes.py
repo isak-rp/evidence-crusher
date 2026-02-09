@@ -3,200 +3,229 @@ import streamlit as st
 import requests
 import os
 
+st.set_page_config(page_title="Gestión de Expediente", layout="wide", page_icon="⚖️")
+
 # Configuración
 API_URL = "http://backend:8000/api/v1/cases"
 DOCS_URL = "http://backend:8000/api/v1/documents"
 
-st.set_page_config(page_title="Gestión de Expediente", layout="wide")
+# ⚠️ TRUCO PARA EVITAR PANTALLA BLANCA:
+# Asegúrate de que tu archivo 'Home.py' o 'Main.py' TAMBIÉN tenga layout="wide".
+# Si uno es "centered" y el otro "wide", el cambio brusco causa el error.
+
+# --- ESTILOS CSS ---
+st.markdown("""
+<style>
+    div[data-testid="stButton"] button:contains("ELIMINAR") {
+        border-color: #ff4b4b;
+        color: #ff4b4b;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 
-def get_with_retry(url, *, timeout=3, retries=3):
+# --- HELPERS DE RED ---
+def safe_request(method, url, **kwargs):
+    kwargs.setdefault('timeout', 10)
+    retries = kwargs.pop('retries', 3)
     delay = 1.0
     for attempt in range(1, retries + 1):
         try:
-            return requests.get(url, timeout=timeout)
+            if method == 'GET': return requests.get(url, **kwargs)
+            elif method == 'POST': return requests.post(url, **kwargs)
+            elif method == 'DELETE': return requests.delete(url, **kwargs)
         except requests.exceptions.ConnectionError:
-            if attempt == retries:
-                raise
+            if attempt == retries: return None
             time.sleep(delay)
             delay *= 2
+        except requests.exceptions.ReadTimeout:
+            return None
+    return None
 
+# --- CACHÉ INTELIGENTE (LA SOLUCIÓN AL BLANCO) ---
+@st.cache_data(ttl=10, show_spinner=False)
+def get_cases_cached():
+    """Obtiene los casos y los guarda en memoria RAM por 10 seg."""
+    res = safe_request('GET', API_URL, timeout=5)
+    if res and res.status_code == 200:
+        return res.json()[::-1]
+    return []
 
-def post_with_retry(url, *, data=None, files=None, json=None, timeout=30, retries=3):
-    delay = 1.0
-    for attempt in range(1, retries + 1):
-        try:
-            return requests.post(url, data=data, files=files, json=json, timeout=timeout)
-        except requests.exceptions.ConnectionError:
-            if attempt == retries:
-                raise
-            time.sleep(delay)
-            delay *= 2
+def clear_cache():
+    """Borra la memoria para obligar a recargar datos."""
+    get_cases_cached.clear()
 
 
 # --- SIDEBAR: GESTIÓN DE CASOS ---
 st.sidebar.header("📁 Mis Expedientes")
 
-# 1. Intentar cargar casos existentes
-cases = []
-try:
-    res = get_with_retry(API_URL, timeout=3, retries=2)
-    if res.status_code == 200:
-        cases = res.json()
-except Exception:
-    st.sidebar.error("⚠️ Error conectando al backend.")
+# 1. Cargar casos (¡Ahora es instantáneo!)
+cases = get_cases_cached()
 
-# 2. Botón para CREAR NUEVO CASO (¡El Salvavidas!)
-with st.sidebar.expander("➕ Nuevo Expediente", expanded=(len(cases) == 0)):
-    new_case_title = st.text_input("Nombre del Cliente/Caso:")
-    if st.button("Crear Expediente"):
-        if new_case_title:
-            with st.spinner("Creando..."):
-                # Crear caso en el backend
-                try:
-                    r = post_with_retry(
-                        API_URL,
-                        json={"title": new_case_title, "description": "Creado desde App"},
-                        timeout=10,
-                        retries=3,
-                    )
-                    if r.status_code == 200:
+# 2. FORMULARIO CREAR
+with st.sidebar.expander("➕ Nuevo Expediente", expanded=False):
+    with st.form("create_case_form", clear_on_submit=True):
+        new_case_title = st.text_input("Nombre del Cliente/Caso:")
+        submitted = st.form_submit_button("Crear Expediente")
+        
+        if submitted:
+            if not new_case_title.strip():
+                st.error("Nombre obligatorio.")
+            else:
+                with st.spinner("Creando..."):
+                    r = safe_request('POST', API_URL, json={"title": new_case_title.strip(), "description": "App"}, timeout=10)
+                    if r and r.status_code in [200, 201]:
                         st.success("¡Creado!")
-                        st.rerun() # Recargar para que aparezca en la lista
+                        clear_cache() # 🧹 Limpiamos caché para ver el nuevo
+                        time.sleep(0.5)
+                        st.rerun()
+                    elif r and r.status_code == 400:
+                        st.error("⚠️ Nombre duplicado.")
                     else:
-                        st.error("Error al crear el expediente.")
-                except Exception:
-                    st.error("⚠️ Error conectando al backend.")
-        else:
-            st.warning("Escribe un nombre.")
+                        st.error("Error al crear.")
 
 st.sidebar.divider()
 
-# 3. Selector de Casos
 if not cases:
-    st.info("👈 ¡Tu base de datos está limpia! Crea tu primer expediente en el menú de la izquierda.")
-    st.stop() # Detener ejecución aquí si no hay casos
+    st.info("👈 Crea tu primer expediente.")
+    st.stop() # Detiene la ejecución aquí si no hay datos
 
-# Si hay casos, mostramos el selector
+# 3. SELECTOR
+cases_map = {c["id"]: c["title"] for c in cases}
+# Protección contra IDs eliminados que sigan en caché
+valid_ids = list(cases_map.keys())
 selected_case_id = st.sidebar.radio(
     "Seleccionar:", 
-    [c["id"] for c in cases], 
-    format_func=lambda x: next((c["title"] for c in cases if c["id"] == x), x)
+    options=valid_ids,
+    format_func=lambda x: cases_map.get(x, "Desconocido")
 )
 
-if selected_case_id:
-    # --- DETALLES DEL CASO SELECCIONADO ---
-    case_res = None
-    try:
-        case_res = get_with_retry(f"{API_URL}/{selected_case_id}", timeout=3, retries=2)
-    except Exception:
-        st.error("⚠️ Error conectando al backend.")
 
-    if case_res is not None and case_res.status_code == 200:
+# --- PÁGINA PRINCIPAL ---
+if selected_case_id:
+    # Obtener detalles del caso seleccionado
+    # No cacheamos esto para ver los documentos frescos al subir
+    case_res = safe_request('GET', f"{API_URL}/{selected_case_id}", timeout=5)
+
+    if case_res and case_res.status_code == 200:
         case = case_res.json()
         st.title(f"📂 {case['title']}")
         
-        # --- A. FICHA TÉCNICA (EXTRACCIÓN IA) ---
-        st.markdown("### 🕵️ Ficha Técnica Automática")
-        meta = case.get("metadata_info")
-        
-        col_metrics, col_actions = st.columns([3, 1])
-        with col_metrics:
-            c1, c2, c3 = st.columns(3)
-            if meta:
-                c1.metric("📅 Ingreso", meta.get("start_date") or "--")
-                c2.metric("🛑 Baja/Despido", meta.get("end_date") or "--")
-                c3.metric("💰 Salario Diario", f"${meta.get('daily_salary')}" if meta.get("daily_salary") else "--")
-            else:
-                st.info("Sin datos analizados.")
-        
-        with col_actions:
-            if st.button("🔍 Analizar Caso", type="primary"):
-                with st.spinner("La IA está leyendo el expediente..."):
-                    try:
-                        res = post_with_retry(
-                            f"{API_URL}/{selected_case_id}/extract-metadata",
-                            timeout=30,
-                            retries=3,
-                        )
-                        if res.status_code == 200:
-                            st.rerun()
-                        else:
-                            st.error("Error al analizar el caso.")
-                    except Exception:
-                        st.error("⚠️ Error conectando al backend.")
+        tab_docs, tab_info, tab_config = st.tabs(["📄 Documentos", "📊 Ficha Técnica", "⚙️ Configuración"])
 
-        st.divider()
-
-        # --- B. GESTIÓN DE DOCUMENTOS ---
-        col_upload, col_list = st.columns([1, 2])
-
-        with col_upload:
-            st.subheader("Subir Documento")
-            uploaded_file = st.file_uploader("Archivo PDF/Imagen", type=["pdf", "png", "jpg", "jpeg"])
-            
-            if uploaded_file and st.button("Guardar Archivo"):
-                with st.spinner("Subiendo..."):
-                    files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
-                    # Enviamos tipo "AUTO" para que el backend decida
-                    data = {"case_id": selected_case_id, "doc_type": "DETECTANDO..."}
-                    try:
-                        r = post_with_retry(
-                            f"{DOCS_URL}/",
-                            files=files,
-                            data=data,
-                            timeout=30,
-                            retries=3,
-                        )
-                        if r.status_code == 200:
+        # TAB 1: DOCUMENTOS
+        with tab_docs:
+            col_upload, col_list = st.columns([1, 2])
+            with col_upload:
+                st.subheader("Subir")
+                uploaded_file = st.file_uploader("Archivo PDF/Imagen", type=["pdf", "png", "jpg", "jpeg"])
+                if uploaded_file and st.button("Guardar Archivo"):
+                    with st.spinner("Subiendo..."):
+                        files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
+                        data = {"case_id": selected_case_id, "doc_type": "DETECTANDO..."}
+                        r = safe_request('POST', f"{DOCS_URL}/", files=files, data=data, timeout=60)
+                        if r and r.status_code == 200:
                             st.success("¡Subido!")
                             st.rerun()
                         else:
-                            st.error("Error al subir.")
-                    except Exception:
-                        st.error("⚠️ Error conectando al backend.")
+                            st.error(f"Error: {r.text if r else 'Timeout'}")
 
-        with col_list:
-            st.subheader("Documentos del Caso")
-            docs = case.get("documents", [])
-            
-            if docs:
-                for doc in docs:
-                    with st.expander(f"📄 {doc.get('doc_type', 'DOC')} - {doc['filename']}"):
-                        c1, c2, c3 = st.columns(3)
-                        
-                        # Botón 1: OCR + Clasificación
-                        if c1.button("⚡ Procesar", key=f"ocr_{doc['id']}"):
-                            with st.spinner("Leyendo..."):
-                                try:
-                                    res = post_with_retry(
-                                        f"{DOCS_URL}/{doc['id']}/process",
-                                        timeout=60,
-                                        retries=3,
-                                    )
-                                    if res.status_code == 200:
-                                        data = res.json()
-                                        st.toast(f"Tipo detectado: {data.get('detected_type', 'OK')}")
+            with col_list:
+                st.subheader("Expediente Digital")
+                docs = case.get("documents", [])
+                if docs:
+                    for doc in docs:
+                        doc_type = doc.get("doc_type") or "SIN_CLASIFICAR"
+                        icon = "📄"
+                        label_display = f"{doc_type}"
+                        if "REVISION_REQUERIDA" in doc_type:
+                            icon = "⚠️"
+                            label_display = ":red[REVISIÓN REQUERIDA]"
+                        elif "CONTRATO" in doc_type: icon = "🤝"
+                        elif "DEMANDA" in doc_type: icon = "⚖️"
+
+                        with st.expander(f"{icon} {label_display} - {doc['filename']}"):
+                            if "REVISION_REQUERIDA" in doc_type:
+                                st.warning("⚠️ Documento fuera de norma patronal.")
+                            
+                            c1, c2, c3 = st.columns(3)
+                            # OCR
+                            if c1.button("⚡ Clasificar", key=f"ocr_{doc['id']}"):
+                                with st.spinner("Leyendo..."):
+                                    res = safe_request('POST', f"{DOCS_URL}/{doc['id']}/process", timeout=60)
+                                    if res and res.status_code == 200:
+                                        st.toast(f"Detectado: {res.json().get('type')}")
+                                        time.sleep(1)
                                         st.rerun()
-                                    else:
-                                        st.error("Error al procesar.")
-                                except Exception:
-                                    st.error("⚠️ Error conectando al backend.")
-                        
-                        # Botón 2: Indexar (Embeddings)
-                        if c2.button("🧠 Indexar", key=f"emb_{doc['id']}"):
-                            with st.spinner("Vectorizando..."):
-                                try:
-                                    res = post_with_retry(
-                                        f"{DOCS_URL}/{doc['id']}/embed",
-                                        timeout=120,
-                                        retries=3,
-                                    )
-                                    if res.status_code == 200:
-                                        st.success("¡Listo!")
-                                    else:
-                                        st.error("Error indexando.")
-                                except Exception:
-                                    st.error("⚠️ Error conectando al backend.")
+                                    else: st.error("Error.")
+                            # Embed
+                            if c2.button("🧠 Indexar", key=f"emb_{doc['id']}"):
+                                with st.spinner("Memorizando..."):
+                                    res = safe_request('POST', f"{DOCS_URL}/{doc['id']}/embed", timeout=120)
+                                    if res and res.status_code == 200: st.success("¡Listo!")
+                                    else: st.error("Error.")
+                            # Borrar Doc
+                            if c3.button("🗑️ Borrar", key=f"del_{doc['id']}"):
+                                with st.spinner("Eliminando..."):
+                                    res = safe_request('DELETE', f"{DOCS_URL}/{doc['id']}")
+                                    if res and res.status_code == 200:
+                                        st.success("Borrado.")
+                                        st.rerun()
+                                    else: st.error("Error.")
+                else:
+                    st.info("Carpeta vacía.")
+
+        # TAB 2: FICHA TÉCNICA
+        with tab_info:
+            st.markdown("### 🕵️ Inteligencia Artificial")
+            meta = case.get("metadata_info")
+            col_met, col_btn = st.columns([3, 1])
+            with col_met:
+                fields = []
+                if meta:
+                    if meta.get("start_date"): fields.append(("📅 Ingreso", meta.get("start_date")))
+                    if meta.get("end_date"): fields.append(("🛑 Baja", meta.get("end_date")))
+                    if meta.get("daily_salary"): fields.append(("💰 Salario", f"${meta.get('daily_salary')}"))
+                if fields:
+                    cols = st.columns(len(fields))
+                    for i, (l, v) in enumerate(fields): cols[i].metric(l, v)
+                else: st.info("No se han extraído datos clave aún.")
+            with col_btn:
+                if st.button("🔍 Analizar Todo", type="primary"):
+                    with st.spinner("Analizando..."):
+                        res = safe_request('POST', f"{API_URL}/{selected_case_id}/extract-metadata", timeout=60)
+                        if res and res.status_code == 200: st.rerun()
+                        else: st.error("Error al analizar.")
+
+        # TAB 3: CONFIGURACIÓN
+        with tab_config:
+            st.header("⚙️ Administración")
+            st.warning("Zona de Peligro")
+            if f"del_confirm_{selected_case_id}" not in st.session_state:
+                st.session_state[f"del_confirm_{selected_case_id}"] = False
+
+            if not st.session_state[f"del_confirm_{selected_case_id}"]:
+                if st.button("🗑️ ELIMINAR EXPEDIENTE COMPLETO"):
+                    st.session_state[f"del_confirm_{selected_case_id}"] = True
+                    st.rerun()
             else:
-                st.info("No hay documentos cargados.")
+                st.error(f"¿Estás seguro de borrar '{case['title']}'?")
+                c_yes, c_no = st.columns(2)
+                with c_yes:
+                    if st.button("SÍ, ELIMINAR", type="primary"):
+                        res = safe_request('DELETE', f"{API_URL}/{selected_case_id}")
+                        if res and res.status_code == 200:
+                            st.success("Caso eliminado.")
+                            clear_cache() # 🧹 Limpieza obligatoria
+                            time.sleep(1)
+                            st.rerun()
+                        else: st.error("Error al eliminar.")
+                with c_no:
+                    if st.button("CANCELAR"):
+                        st.session_state[f"del_confirm_{selected_case_id}"] = False
+                        st.rerun()
+    else:
+        st.warning("No se pudo cargar el expediente. Posiblemente fue eliminado.")

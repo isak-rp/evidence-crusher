@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import Case, Document
+from app.db.models import Case, Document, DocumentChunk
 from app.db.session import get_db
 from app.schemas.cases import (
     CaseCreate,
@@ -29,6 +29,15 @@ UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/app/uploaded_files"))
 
 @router.post("/", response_model=CaseResponse, status_code=status.HTTP_201_CREATED)
 def create_case(payload: CaseCreate, db: Session = Depends(get_db)) -> CaseResponse:
+    # 1. VALIDACIÓN: Verificar si ya existe un caso con ese título
+    existing_case = db.scalar(select(Case).where(Case.title == payload.title))
+    if existing_case:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Ya existe un expediente con el nombre '{payload.title}'. Por favor elige otro."
+        )
+
+    # 2. CREACIÓN
     new_case = Case(title=payload.title, description=payload.description)
     db.add(new_case)
     db.commit()
@@ -58,6 +67,20 @@ def get_case(case_id: UUID, db: Session = Depends(get_db)) -> CaseResponse:
     if case is None:
         raise HTTPException(status_code=404, detail="Case not found")
     return CaseResponse.model_validate(case)
+
+
+@router.delete("/{case_id}", status_code=status.HTTP_200_OK)
+def delete_case(case_id: UUID, db: Session = Depends(get_db)):
+    """Elimina un expediente completo, sus documentos y metadatos."""
+    case = db.get(Case, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Expediente no encontrado")
+    
+    # Nota: Si tus modelos tienen cascade="all, delete", esto borra todo automático.
+    # Si no, SQLAlchemy intentará borrar hijos.
+    db.delete(case)
+    db.commit()
+    return {"status": "deleted", "id": str(case_id)}
 
 
 @router.post(

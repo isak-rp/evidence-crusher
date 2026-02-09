@@ -77,6 +77,32 @@ def process_document_content(
         ) from exc
 
 
+@router.delete("/{document_id}", status_code=status.HTTP_200_OK)
+def delete_document(document_id: UUID, db: Session = Depends(get_db)) -> dict[str, str]:
+    """
+    Elimina un documento, sus chunks/vectores y el archivo físico si existe.
+    """
+    doc = db.get(Document, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    file_path = Path(doc.file_path) if doc.file_path else None
+    try:
+        if file_path and file_path.exists():
+            file_path.unlink()
+    except Exception:
+        pass
+
+    try:
+        db.delete(doc)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error eliminando documento: {exc}") from exc
+
+    return {"status": "deleted", "document_id": str(document_id)}
+
+
 @router.post("/{document_id}/embed", status_code=status.HTTP_200_OK)
 def create_embeddings(document_id: UUID, db: Session = Depends(get_db)) -> dict[str, str | int]:
     """

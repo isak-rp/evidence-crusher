@@ -37,6 +37,11 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    # 👇 ESTO ES LO NUEVO: El túnel para ver cambios en vivo
+    volumes:
+      - ./backend:/app
+      # Ignoramos el entorno virtual local para no romper Linux
+      - /app/.venv 
 
   frontend:
     build:
@@ -50,6 +55,10 @@ services:
       - backend
     ports:
       - "8501:8501"
+    # 👇 ESTO ES LO NUEVO: El túnel para ver cambios en vivo
+    volumes:
+      - ./frontend:/app
+      - ./.streamlit:/app/.streamlit:ro
 
 volumes:
   db_data:
