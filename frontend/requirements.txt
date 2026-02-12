@@ -2,3 +2,4 @@ streamlit==1.31.0
 requests==2.31.0  # Para conectar con tu Backend
 pandas==2.2.0
 plotly==5.18.0    # Para gráficos bonitos
+streamlit-pdf-viewer==0.0.14

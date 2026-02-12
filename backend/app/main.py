@@ -18,6 +18,8 @@ from psycopg2.extras import RealDictCursor
 
 from app.api.v1.endpoints.cases import router as cases_router
 from app.api.v1.endpoints.documents import router as documents_router
+from app.api.v1.endpoints.tasks import router as tasks_router
+from app.core.ai_provider import ModelProvider
 from app.core.legal_constants import (
     INDEMNIZACION_CONSTITUCIONAL_MESES,
     LIQUIDACION_ESTIMACION_DIAS_POR_ANIO,
@@ -66,10 +68,13 @@ app: FastAPI = FastAPI(title=os.getenv("PROJECT_NAME", "Evidence Crusher"))
 
 app.include_router(cases_router, prefix="/api/v1/cases", tags=["Expedientes"])
 app.include_router(documents_router, prefix="/api/v1/documents", tags=["Documentos"])
+app.include_router(tasks_router, prefix="/api/v1/tasks", tags=["Tareas"])
 
 
 @app.on_event("startup")
 def _startup() -> None:
+    # Validación temprana de AI_PROVIDER
+    ModelProvider._provider()
     init_db()
 
 

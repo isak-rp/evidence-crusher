@@ -7,6 +7,8 @@ import logging
 import re
 
 from app.db.models import Document, DocumentChunk
+from app.services.llm import LLMService
+from app.services.storage import StorageService
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +97,58 @@ class IngestionService:
         return "⚠️ REVISION_REQUERIDA"
 
     @staticmethod
+    def _classify_with_llm(text: str) -> str:
+        allowed = {
+            "CONVENIO_NDA",
+            "CONTRATO_TELETRABAJO",
+            "AVISO_PRIVACIDAD",
+            "SOLICITUD_EMPLEO",
+            "RESPONSIVA_HERRAMIENTAS",
+            "CONTRATO_INDIVIDUAL",
+            "LISTA_ASISTENCIA",
+            "RECIBO_NOMINA",
+            "CONSTANCIA_VACACIONES",
+            "RECIBO_AGUINALDO_PTU",
+            "REGLAMENTO_INTERIOR",
+            "ACTA_ADMINISTRATIVA",
+            "SANCION_DISCIPLINARIA",
+            "CARPETA_NOM035",
+            "CARPETA_SEGURIDAD",
+            "CAPACITACION_DC3",
+            "EXPEDIENTE_REPSE",
+            "PROTOCOLO_ACOSO",
+            "CARTA_RENUNCIA",
+            "CONVENIO_TERMINACION",
+            "RECIBO_FINIQUITO",
+            "AVISO_RESCISION",
+            "CONSTANCIA_LABORAL",
+            "PODER_NOTARIAL",
+            "CONTESTACION_DEMANDA",
+            "OFRECIMIENTO_PRUEBAS",
+            "PLIEGO_POSICIONES",
+            "INTERROGATORIO_TESTIGOS",
+            "ESCRITO_ALEGATOS",
+            "DEMANDA_AMPARO",
+            "⚠️ REVISION_REQUERIDA",
+        }
+        try:
+            label = LLMService.classify_with_llama(text)
+            return label if label in allowed else "⚠️ REVISION_REQUERIDA"
+        except Exception as exc:
+            logger.warning("Clasificacion LLM no disponible, aplicando reglas locales: %s", exc)
+            return "⚠️ REVISION_REQUERIDA"
+
+    @staticmethod
     def process_document(db: Session, document_id: UUID) -> dict:
         doc = db.get(Document, document_id)
         if not doc:
             raise ValueError("Documento no encontrado")
 
         file_path = Path(doc.file_path)
+        temp_path = None
+        if str(doc.file_path).startswith("s3://"):
+            temp_path = StorageService.download_to_tempfile(doc.file_path)
+            file_path = temp_path
         if not file_path.exists():
             raise ValueError("Archivo físico no encontrado")
 
@@ -109,12 +157,12 @@ class IngestionService:
             with pdfplumber.open(str(file_path)) as pdf:
                 if len(pdf.pages) > 0 and len((pdf.pages[0].extract_text() or "").strip()) > 50:
                     strategy = "NATIVO"
-        except:
+        except Exception:
             pass
 
         logger.info(f"Procesando {doc.filename} como {strategy}")
         chunks_created = 0
-        full_first_page_text = ""
+        classification_text_parts: list[str] = []
 
         try:
             with pdfplumber.open(str(file_path)) as pdf:
@@ -125,11 +173,11 @@ class IngestionService:
                     if strategy == "NATIVO":
                         text = page.extract_text() or ""
                     else:
-                        pil_image = page.to_image(resolution=300).original
+                        pil_image = page.to_image(resolution=200).original
                         text = pytesseract.image_to_string(pil_image, lang='spa')
 
-                    if i == 0:
-                        full_first_page_text = text
+                    if i < 2 and len(" ".join(classification_text_parts)) < 4000:
+                        classification_text_parts.append(text[:2500])
 
                     text = text.replace("-\n", "").replace("\n", " ")
                     text = re.sub(r'\s+', ' ', text).strip()
@@ -164,8 +212,11 @@ class IngestionService:
                             if start >= end:
                                 start = end
 
-            if full_first_page_text:
-                detected_type = IngestionService._classify_document(full_first_page_text)
+            classification_text = " ".join(classification_text_parts).strip()
+            if classification_text:
+                detected_type = IngestionService._classify_document(classification_text)
+                if detected_type == "⚠️ REVISION_REQUERIDA":
+                    detected_type = IngestionService._classify_with_llm(classification_text)
                 doc.doc_type = detected_type
                 db.add(doc)
             else:
@@ -178,3 +229,9 @@ class IngestionService:
             db.rollback()
             logger.error(f"Fallo ingesta: {e}")
             raise e
+        finally:
+            if temp_path and temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass

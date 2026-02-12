@@ -42,3 +42,16 @@ Thumbs.db
 
 
 .cursorrules
+
+
+# Cache de modelos de IA
+backend/.cache/
+__pycache__/
+*.pyc
+
+# Entornos virtuales
+venv/
+.env
+
+# Base de datos local
+backend/migrations/dev.db

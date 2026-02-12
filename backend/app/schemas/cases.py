@@ -19,6 +19,10 @@ class DocumentResponse(BaseModel):
     id: UUID
     filename: str
     doc_type: str
+    is_classified: bool | None = None
+    is_indexed: bool | None = None
+    chunk_count: int | None = None
+    indexed_chunk_count: int | None = None
 
 
 class CaseMetadataResponse(BaseModel):
@@ -27,6 +31,15 @@ class CaseMetadataResponse(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     daily_salary: float | None = None
+    start_date_source_doc_id: UUID | None = None
+    start_date_page: int | None = None
+    start_date_bbox: dict | None = None
+    end_date_source_doc_id: UUID | None = None
+    end_date_page: int | None = None
+    end_date_bbox: dict | None = None
+    daily_salary_source_doc_id: UUID | None = None
+    daily_salary_page: int | None = None
+    daily_salary_bbox: dict | None = None
     extraction_status: str | None = None
     is_verified: bool | None = None
 

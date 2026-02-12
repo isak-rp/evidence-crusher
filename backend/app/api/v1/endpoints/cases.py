@@ -2,58 +2,83 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-import os
-from pathlib import Path
-import shutil
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import Case, Document, DocumentChunk
+from app.db.models import Case, Document
 from app.db.session import get_db
-from app.schemas.cases import (
-    CaseCreate,
-    CaseResponse,
-    DocumentResponse,
-    CaseMetadataResponse,
-)
-from app.services.extraction import ExtractionService
+from app.schemas.cases import CaseCreate, CaseResponse
+from app.tasks import extract_case_metadata as extract_case_metadata_task
 
 router = APIRouter(tags=["cases"])
 
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/app/uploaded_files"))
+
+def _build_case_response(case: Case) -> CaseResponse:
+    documents_payload = []
+    for doc in case.documents or []:
+        chunks = doc.chunks or []
+        chunk_count = len(chunks)
+        indexed_chunk_count = sum(1 for c in chunks if c.embedding is not None)
+        is_indexed = chunk_count > 0 and indexed_chunk_count == chunk_count
+        is_classified = bool(
+            doc.doc_type
+            and doc.doc_type not in {"DETECTANDO...", "SIN_CLASIFICAR"}
+        )
+        documents_payload.append(
+            {
+                "id": doc.id,
+                "filename": doc.filename,
+                "doc_type": doc.doc_type,
+                "is_classified": is_classified,
+                "is_indexed": is_indexed,
+                "chunk_count": chunk_count,
+                "indexed_chunk_count": indexed_chunk_count,
+            }
+        )
+
+    return CaseResponse.model_validate(
+        {
+            "id": case.id,
+            "title": case.title,
+            "status": case.status,
+            "created_at": case.created_at,
+            "documents": documents_payload,
+            "metadata_info": case.metadata_info,
+        }
+    )
 
 
 @router.post("/", response_model=CaseResponse, status_code=status.HTTP_201_CREATED)
 def create_case(payload: CaseCreate, db: Session = Depends(get_db)) -> CaseResponse:
-    # 1. VALIDACIÓN: Verificar si ya existe un caso con ese título
     existing_case = db.scalar(select(Case).where(Case.title == payload.title))
     if existing_case:
         raise HTTPException(
-            status_code=400, 
-            detail=f"Ya existe un expediente con el nombre '{payload.title}'. Por favor elige otro."
+            status_code=400,
+            detail=f"Ya existe un expediente con el nombre '{payload.title}'. Por favor elige otro.",
         )
 
-    # 2. CREACIÓN
     new_case = Case(title=payload.title, description=payload.description)
     db.add(new_case)
     db.commit()
     db.refresh(new_case)
-    return CaseResponse.model_validate(new_case)
+    return _build_case_response(new_case)
 
 
 @router.get("/", response_model=list[CaseResponse])
 def list_cases(db: Session = Depends(get_db)) -> list[CaseResponse]:
     statement = (
         select(Case)
-        .options(selectinload(Case.documents), selectinload(Case.metadata_info))
+        .options(
+            selectinload(Case.documents).selectinload(Document.chunks),
+            selectinload(Case.metadata_info),
+        )
         .order_by(Case.created_at.desc())
     )
     cases = db.execute(statement).scalars().all()
-    return [CaseResponse.model_validate(case) for case in cases]
+    return [_build_case_response(case) for case in cases]
 
 
 @router.get("/{case_id}", response_model=CaseResponse)
@@ -61,71 +86,32 @@ def get_case(case_id: UUID, db: Session = Depends(get_db)) -> CaseResponse:
     statement = (
         select(Case)
         .where(Case.id == case_id)
-        .options(selectinload(Case.documents), selectinload(Case.metadata_info))
+        .options(
+            selectinload(Case.documents).selectinload(Document.chunks),
+            selectinload(Case.metadata_info),
+        )
     )
     case = db.execute(statement).scalars().first()
     if case is None:
         raise HTTPException(status_code=404, detail="Case not found")
-    return CaseResponse.model_validate(case)
+    return _build_case_response(case)
 
 
 @router.delete("/{case_id}", status_code=status.HTTP_200_OK)
 def delete_case(case_id: UUID, db: Session = Depends(get_db)):
-    """Elimina un expediente completo, sus documentos y metadatos."""
     case = db.get(Case, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Expediente no encontrado")
-    
-    # Nota: Si tus modelos tienen cascade="all, delete", esto borra todo automático.
-    # Si no, SQLAlchemy intentará borrar hijos.
+
     db.delete(case)
     db.commit()
     return {"status": "deleted", "id": str(case_id)}
 
 
-@router.post(
-    "/{case_id}/documents/",
-    response_model=DocumentResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-def upload_document(
-    case_id: UUID,
-    file: UploadFile = File(...),
-    doc_type: str = Form(...),
-    db: Session = Depends(get_db),
-) -> DocumentResponse:
-    case = db.execute(select(Case).where(Case.id == case_id)).scalars().first()
-    if case is None:
-        raise HTTPException(status_code=404, detail="Case not found")
-
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    safe_name = f"{uuid4()}_{file.filename}"
-    destination = UPLOAD_DIR / safe_name
-
-    try:
-        with destination.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    finally:
-        file.file.close()
-
-    document = Document(
-        case_id=case_id,
-        filename=file.filename,
-        file_path=str(destination),
-        doc_type=doc_type,
-        upload_date=datetime.utcnow(),
-    )
-    db.add(document)
-    db.commit()
-    db.refresh(document)
-    return DocumentResponse.model_validate(document)
-
-
 @router.post("/{case_id}/extract-metadata")
 def extract_metadata_endpoint(case_id: UUID, db: Session = Depends(get_db)):
-    """Analiza documentos y extrae fechas/montos automáticamente."""
     try:
-        data = ExtractionService.extract_case_metadata(db, case_id)
-        return {"status": "success", "data": CaseMetadataResponse.model_validate(data)}
+        task = extract_case_metadata_task.delay(str(case_id))
+        return {"status": "queued", "task_id": task.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

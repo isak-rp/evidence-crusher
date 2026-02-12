@@ -6,7 +6,7 @@ from datetime import datetime, date
 from uuid import UUID, uuid4
 
 # --- MODIFICACIÓN: Agregamos Integer y Text a los imports ---
-from sqlalchemy import DateTime, ForeignKey, String, func, Integer, Text
+from sqlalchemy import DateTime, ForeignKey, String, func, Integer, Text, JSON
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
@@ -107,7 +107,7 @@ class DocumentChunk(Base):
     semantic_type: Mapped[str] = mapped_column(String, nullable=False, default="GENERAL")
 
     # Vector de embeddings (modelo local 384 dims)
-    embedding: Mapped[list[float]] = mapped_column(Vector(384), nullable=True)
+    embedding: Mapped[list[float]] = mapped_column(Vector(1024), nullable=True)
 
     document: Mapped[Document] = relationship(back_populates="chunks")
 
@@ -131,6 +131,27 @@ class CaseMetadata(Base):
     start_date: Mapped[date | None] = mapped_column(nullable=True)
     end_date: Mapped[date | None] = mapped_column(nullable=True)
     daily_salary: Mapped[float | None] = mapped_column(nullable=True)
+    start_date_source_doc_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    start_date_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_date_bbox: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    end_date_source_doc_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    end_date_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_date_bbox: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    daily_salary_source_doc_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    daily_salary_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    daily_salary_bbox: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     extraction_status: Mapped[str] = mapped_column(String, nullable=False, default="PENDING")
     is_verified: Mapped[bool] = mapped_column(nullable=False, default=False)
 

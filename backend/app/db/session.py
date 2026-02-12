@@ -5,8 +5,6 @@ import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.db.models import Base
-
 # Configuración de conexión
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -26,17 +24,13 @@ def get_db():
 
 
 def init_db():
-    """Inicializa la base de datos creando las tablas."""
+    """Inicializa la base de datos creando extensiones necesarias."""
     try:
         # 1. ACTIVAR LA EXTENSIÓN VECTOR (El paso que faltaba)
         with engine.connect() as connection:
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             connection.commit()
             print("✅ Extensión 'vector' activada correctamente.")
-
-        # 2. CREAR TABLAS
-        Base.metadata.create_all(bind=engine)
-        print("✅ Tablas creadas correctamente.")
 
     except Exception as e:
         print(f"❌ Error inicializando DB: {e}")

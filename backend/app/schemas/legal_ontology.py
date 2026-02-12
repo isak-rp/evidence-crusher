@@ -12,10 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, computed_field, field_validator, model_validator
 
 # Importar constantes LFT para uso en validadores y documentación
-from app.core.legal_constants import (
-    JORNADA_MAXIMA_HORAS_SEMANALES,
-    VACACIONES_DIGNAS,
-)
+from app.core.legal_constants import VACACIONES_DIGNAS
 
 
 # ---------------------------------------------------------------------------

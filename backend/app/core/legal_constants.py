@@ -82,12 +82,10 @@ def _build_vacaciones_dignas_dict() -> dict[int, int]:
     for anio, dias in _VACACIONES_BASE:
         result[anio] = dias
     ultimo_anio = 5
-    ultimos_dias = 20
     for tope_anio, dias in _VACACIONES_RANGOS:
         for anio in range(ultimo_anio + 1, tope_anio + 1):
             result[anio] = dias
         ultimo_anio = tope_anio
-        ultimos_dias = dias
     return result
 
 

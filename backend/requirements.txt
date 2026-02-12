@@ -4,11 +4,16 @@ sqlalchemy==2.0.25
 psycopg2-binary==2.9.9
 pydantic==2.6.0
 python-multipart==0.0.9
-python-dotenv==1.0.1
 pdfplumber==0.10.3
 pytesseract==0.3.10
 pgvector==0.2.5
-sentence-transformers==2.6.1
+celery==5.3.6
+redis==5.0.2
+boto3==1.34.18
+alembic==1.13.1
+requests==2.31.0
+python-dotenv==1.0.1
+requests==2.31.0
 
 # --- SPRINT 2: MOTORES DE INGESTA ---
 pdfplumber==0.10.3      # Para PDFs de texto nativo (rápido)

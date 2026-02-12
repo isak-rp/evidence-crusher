@@ -6,10 +6,10 @@ from uuid import UUID
 
 from datetime import datetime
 from pathlib import Path
-import os
-import shutil
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse, StreamingResponse
+import mimetypes
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,11 +17,11 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.models import Case, Document, DocumentChunk
 from app.services.embeddings import EmbeddingService
-from app.services.ingestion import IngestionService
+from app.services.storage import StorageService
+from app.tasks import process_document as process_document_task
+from app.tasks import embed_document as embed_document_task
 
 router = APIRouter()
-
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/app/uploaded_files"))
 
 
 @router.post("/", status_code=status.HTTP_200_OK)
@@ -35,20 +35,22 @@ def upload_document(
     if case is None:
         raise HTTPException(status_code=404, detail="Case not found")
 
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    safe_name = f"{case_id}_{file.filename}"
-    destination = UPLOAD_DIR / safe_name
-
     try:
-        with destination.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        content = file.file.read()
     finally:
         file.file.close()
+
+    safe_name = f"{case_id}_{file.filename}"
+    s3_url = StorageService.upload_bytes(
+        safe_name,
+        content,
+        content_type=file.content_type,
+    )
 
     document = Document(
         case_id=case_id,
         filename=file.filename,
-        file_path=str(destination),
+        file_path=s3_url,
         doc_type=doc_type,
         upload_date=datetime.utcnow(),
     )
@@ -66,8 +68,8 @@ def process_document_content(
     Triggers OCR/reading for a specific document.
     """
     try:
-        result = IngestionService.process_document(db, document_id)
-        return result
+        task = process_document_task.delay(str(document_id))
+        return {"status": "queued", "task_id": task.id}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -75,6 +77,36 @@ def process_document_content(
             status_code=500,
             detail=f"Error interno procesando PDF: {exc}",
         ) from exc
+
+
+@router.get("/{document_id}/file", status_code=status.HTTP_200_OK)
+def get_document_file(document_id: UUID, db: Session = Depends(get_db)) -> FileResponse:
+    """
+    Sirve el archivo físico para visualización en frontend.
+    """
+    doc = db.get(Document, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    if str(doc.file_path).startswith("s3://"):
+        data = StorageService.download_bytes(doc.file_path)
+        media_type, _ = mimetypes.guess_type(doc.filename)
+        return StreamingResponse(
+            iter([data]),
+            media_type=media_type or "application/octet-stream",
+            headers={"Content-Disposition": f'inline; filename="{doc.filename}"'},
+        )
+
+    file_path = Path(doc.file_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Archivo físico no encontrado")
+
+    media_type, _ = mimetypes.guess_type(str(file_path))
+    return FileResponse(
+        path=str(file_path),
+        filename=doc.filename,
+        media_type=media_type or "application/octet-stream",
+    )
 
 
 @router.delete("/{document_id}", status_code=status.HTTP_200_OK)
@@ -86,10 +118,13 @@ def delete_document(document_id: UUID, db: Session = Depends(get_db)) -> dict[st
     if doc is None:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
 
-    file_path = Path(doc.file_path) if doc.file_path else None
     try:
-        if file_path and file_path.exists():
-            file_path.unlink()
+        if doc.file_path and str(doc.file_path).startswith("s3://"):
+            StorageService.delete_object(doc.file_path)
+        else:
+            file_path = Path(doc.file_path) if doc.file_path else None
+            if file_path and file_path.exists():
+                file_path.unlink()
     except Exception:
         pass
 
@@ -108,55 +143,34 @@ def create_embeddings(document_id: UUID, db: Session = Depends(get_db)) -> dict[
     """
     Toma los chunks de texto existentes y genera sus vectores.
     """
-    stmt = select(DocumentChunk).where(DocumentChunk.document_id == document_id)
-    chunks = db.execute(stmt).scalars().all()
-
-    if not chunks:
-        raise HTTPException(
-            status_code=404,
-            detail="No hay chunks procesados para este documento. Ejecuta /process primero.",
-        )
-
-    count = 0
-    for chunk in chunks:
-        if chunk.embedding is None:
-            vector = EmbeddingService.generate_embedding(chunk.text_content)
-            chunk.embedding = vector
-            count += 1
-
-    db.commit()
-    return {"status": "indexed", "chunks_embedded": count}
+    task = embed_document_task.delay(str(document_id))
+    return {"status": "queued", "task_id": task.id}
 
 
-class SearchQuery(BaseModel):
-    query: str
+class ChatQuery(BaseModel):
+    question: str
     limit: int = 5
 
 
-@router.post("/{document_id}/search", status_code=status.HTTP_200_OK)
-def search_document(
-    document_id: UUID, search: SearchQuery, db: Session = Depends(get_db)
-) -> list[dict[str, str | int]]:
+@router.post("/{document_id}/chat", status_code=status.HTTP_200_OK)
+def chat_with_document(
+    document_id: UUID, payload: ChatQuery, db: Session = Depends(get_db)
+) -> dict[str, object]:
     """
-    Busca los fragmentos más relevantes dentro de un documento usando similitud semántica.
+    Chat contextual con citaciones usando command-r.
     """
-    query_vector = EmbeddingService.generate_embedding(search.query)
-
+    query_vector = EmbeddingService.generate_embedding(payload.question)
     chunks = db.scalars(
         select(DocumentChunk)
         .where(DocumentChunk.document_id == document_id)
         .order_by(DocumentChunk.embedding.l2_distance(query_vector))
-        .limit(search.limit)
+        .limit(payload.limit)
     ).all()
+    context = "\n\n".join(
+        [f"[p{c.page_number}] {c.text_content}" for c in chunks]
+    )
+    from app.services.llm import LLMService
 
-    results: list[dict[str, str | int]] = []
-    for chunk in chunks:
-        results.append(
-            {
-                "text": chunk.text_content,
-                "page": chunk.page_number,
-                "type": chunk.semantic_type,
-            }
-        )
-
-    return results
+    answer = LLMService.rag_answer(payload.question, context)
+    sources = [{"page": c.page_number, "text": c.text_content[:240]} for c in chunks]
+    return {"answer": answer, "sources": sources}
