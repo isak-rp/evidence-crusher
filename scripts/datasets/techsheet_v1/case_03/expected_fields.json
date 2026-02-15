@@ -1,0 +1,8 @@
+{
+  "case_id": "90a69d5b-1a63-43d8-8f7b-b89461852fe1",
+  "expected_fields": {
+    "start_date_real": { "value": null },
+    "salary_sd": { "value": null },
+    "termination_cause": { "value": null }
+  }
+}

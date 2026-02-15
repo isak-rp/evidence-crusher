@@ -22,7 +22,7 @@ class ExtractionService:
     REGEX_DATE = r"(\d{1,2})\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+(?:de\s+)?(\d{4})|(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})"
 
     @staticmethod
-    def extract_case_metadata(db: Session, case_id: UUID):
+    def extract_case_metadata(db: Session, case_id: UUID, *, task_id: str | None = None):
         """
         Llena la ficha técnica buscando semánticamente en TODO el caso.
         """
@@ -37,6 +37,16 @@ class ExtractionService:
             {"field": "end_date", "query": "fecha de despido terminación de la relación laboral baja", "type": "date"},
         ]
 
+        provider = LLMService.current_provider()
+        model = LLMService.current_extract_model()
+        logger.info(
+            "extract_metadata_start case_id=%s task_id=%s provider=%s model=%s",
+            case_id,
+            task_id,
+            provider,
+            model,
+        )
+
         for target in targets:
             chunk = ExtractionService._semantic_search(db, case_id, target["query"])
 
@@ -45,7 +55,11 @@ class ExtractionService:
                 llm_value = structured.get(target["field"])
                 match = None
                 if llm_value:
-                    match = (llm_value, str(llm_value))
+                    coerced = ExtractionService._coerce_value(llm_value, target["type"])
+                    if coerced is not None:
+                        match = (coerced, str(llm_value))
+                    else:
+                        match = ExtractionService._apply_regex(chunk.text_content, target["type"])
                 else:
                     match = ExtractionService._apply_regex(chunk.text_content, target["type"])
                 if match:
@@ -77,8 +91,36 @@ class ExtractionService:
                         metadata.daily_salary_page = page_number
                         metadata.daily_salary_bbox = bbox
 
+                    logger.info(
+                        "extract_metadata_field case_id=%s task_id=%s field=%s doc_id=%s page=%s value=%s source=%s",
+                        case_id,
+                        task_id,
+                        target["field"],
+                        doc_id,
+                        page_number,
+                        value,
+                        "llm+coerce" if llm_value else "regex",
+                    )
+                else:
+                    logger.warning(
+                        "extract_metadata_field_not_found case_id=%s task_id=%s field=%s doc_id=%s page=%s",
+                        case_id,
+                        task_id,
+                        target["field"],
+                        chunk.document_id,
+                        chunk.page_number,
+                    )
+            else:
+                logger.warning(
+                    "extract_metadata_no_chunk case_id=%s task_id=%s field=%s",
+                    case_id,
+                    task_id,
+                    target["field"],
+                )
+
         metadata.extraction_status = "COMPLETED"
         db.commit()
+        logger.info("extract_metadata_done case_id=%s task_id=%s metadata_id=%s", case_id, task_id, metadata.id)
         return metadata
 
     @staticmethod
@@ -128,6 +170,26 @@ class ExtractionService:
                         if len(year) == 2:
                             year = f"20{year}"
                         return datetime(int(year), int(month), int(day)).date(), match.group(0)
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _coerce_value(value, dtype: str):
+        if value is None:
+            return None
+        try:
+            if dtype == "money":
+                if isinstance(value, (int, float)):
+                    return float(value)
+                raw = str(value).replace("$", "").replace(",", "").strip()
+                return float(raw)
+            if dtype == "date":
+                if hasattr(value, "isoformat"):
+                    return value
+                parsed = ExtractionService._apply_regex(str(value), "date")
+                if parsed:
+                    return parsed[0]
         except Exception:
             return None
         return None

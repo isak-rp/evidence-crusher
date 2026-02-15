@@ -28,6 +28,7 @@ celery_app.conf.update(
         "app.tasks.process_document": {"queue": "ingest"},
         "app.tasks.embed_document": {"queue": "embed"},
         "app.tasks.extract_case_metadata": {"queue": "extract"},
+        "app.tasks.build_technical_sheet": {"queue": "extract"},
         "app.tasks.audit_case": {"queue": "audit"},
     },
 )

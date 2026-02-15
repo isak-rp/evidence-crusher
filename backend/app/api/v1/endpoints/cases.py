@@ -11,7 +11,10 @@ from sqlalchemy.orm import Session, selectinload
 from app.db.models import Case, Document
 from app.db.session import get_db
 from app.schemas.cases import CaseCreate, CaseResponse
+from app.schemas.technical_sheet import TechnicalSheetResponse
 from app.tasks import extract_case_metadata as extract_case_metadata_task
+from app.tasks import build_technical_sheet as build_technical_sheet_task
+from app.services.technical_sheet import TechnicalSheetService
 
 router = APIRouter(tags=["cases"])
 
@@ -115,3 +118,24 @@ def extract_metadata_endpoint(case_id: UUID, db: Session = Depends(get_db)):
         return {"status": "queued", "task_id": task.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{case_id}/build-technical-sheet")
+def build_technical_sheet_endpoint(case_id: UUID, db: Session = Depends(get_db)):
+    if not TechnicalSheetService.feature_enabled():
+        raise HTTPException(status_code=404, detail="Technical sheet v2 disabled")
+    try:
+        task = build_technical_sheet_task.delay(str(case_id))
+        return {"status": "queued", "task_id": task.id}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/{case_id}/technical-sheet", response_model=TechnicalSheetResponse)
+def get_technical_sheet_endpoint(case_id: UUID, db: Session = Depends(get_db)) -> TechnicalSheetResponse:
+    if not TechnicalSheetService.feature_enabled():
+        raise HTTPException(status_code=404, detail="Technical sheet v2 disabled")
+    case = db.get(Case, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Expediente no encontrado")
+    return TechnicalSheetService.get_case_technical_sheet(db, case_id)

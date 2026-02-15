@@ -6,7 +6,7 @@ from datetime import datetime, date
 from uuid import UUID, uuid4
 
 # --- MODIFICACIÓN: Agregamos Integer y Text a los imports ---
-from sqlalchemy import DateTime, ForeignKey, String, func, Integer, Text, JSON
+from sqlalchemy import DateTime, ForeignKey, String, func, Integer, Text, JSON, Float
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
@@ -40,6 +40,19 @@ class Case(Base):
         cascade="all, delete-orphan",
     )
     metadata_info: Mapped["CaseMetadata | None"] = relationship(
+        back_populates="case",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    technical_facts: Mapped[list["TechnicalFact"]] = relationship(
+        back_populates="case",
+        cascade="all, delete-orphan",
+    )
+    technical_alerts: Mapped[list["TechnicalAlert"]] = relationship(
+        back_populates="case",
+        cascade="all, delete-orphan",
+    )
+    technical_snapshot: Mapped["TechnicalSnapshot | None"] = relationship(
         back_populates="case",
         cascade="all, delete-orphan",
         uselist=False,
@@ -156,3 +169,106 @@ class CaseMetadata(Base):
     is_verified: Mapped[bool] = mapped_column(nullable=False, default=False)
 
     case: Mapped[Case] = relationship(back_populates="metadata_info")
+
+
+class TechnicalFact(Base):
+    """Smart field persisted for technical sheet traceability."""
+
+    __tablename__ = "technical_facts"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    case_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("cases.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    pillar: Mapped[str] = mapped_column(String, nullable=False)
+    field_key: Mapped[str] = mapped_column(String, nullable=False)
+    value_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    value_normalized: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    source_doc_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_bbox: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    source_text_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_doc_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    risk_level: Mapped[str] = mapped_column(String, nullable=False, default="LOW")
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    truth_status: Mapped[str] = mapped_column(String, nullable=False, default="FACT")
+    rule_applied: Mapped[str | None] = mapped_column(String, nullable=True)
+    why_critical: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    case: Mapped[Case] = relationship(back_populates="technical_facts")
+    source_document: Mapped["Document | None"] = relationship()
+
+
+class TechnicalAlert(Base):
+    """Aggregated legal/compliance alerts for technical sheet."""
+
+    __tablename__ = "technical_alerts"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    case_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("cases.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    severity: Mapped[str] = mapped_column(String, nullable=False)
+    code: Mapped[str] = mapped_column(String, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    required_doc_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    field_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    evidence_fact_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    case: Mapped[Case] = relationship(back_populates="technical_alerts")
+
+
+class TechnicalSnapshot(Base):
+    """Executive summary snapshot for technical sheet."""
+
+    __tablename__ = "technical_snapshot"
+
+    case_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("cases.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    overall_status: Mapped[str] = mapped_column(String, nullable=False, default="YELLOW")
+    litis_narrative: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    high_impact_alerts: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    case: Mapped[Case] = relationship(back_populates="technical_snapshot")

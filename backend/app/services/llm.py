@@ -7,6 +7,15 @@ from app.core.ai_provider import ModelProvider
 
 
 class LLMService:
+    EXPECTED_EXTRACTION_KEYS = (
+        "start_date",
+        "end_date",
+        "daily_salary",
+        "start_date_source_doc_id",
+        "end_date_source_doc_id",
+        "daily_salary_source_doc_id",
+    )
+
     @staticmethod
     def _provider() -> str:
         return os.getenv("AI_PROVIDER", "ollama").lower()
@@ -30,6 +39,14 @@ class LLMService:
         return os.getenv("OPENROUTER_AUDIT_MODEL", "openrouter/auto")
 
     @staticmethod
+    def current_provider() -> str:
+        return LLMService._provider()
+
+    @staticmethod
+    def current_extract_model() -> str:
+        return LLMService._extract_model()
+
+    @staticmethod
     def classify_with_llama(text: str) -> str:
         system = (
             "Eres un clasificador legal. Devuelve SOLO una etiqueta exacta de la taxonomia "
@@ -51,7 +68,8 @@ class LLMService:
             "daily_salary_source_doc_id. Usa null si no esta."
         )
         prompt = f"Texto:\n{text[:4000]}\n\nJSON:"
-        return ModelProvider.extract_json(LLMService._extract_model(), prompt, system=system)
+        payload = ModelProvider.extract_json(LLMService._extract_model(), prompt, system=system)
+        return LLMService._normalize_extraction_payload(payload)
 
     @staticmethod
     def rag_answer(question: str, context: str) -> str:
@@ -64,3 +82,12 @@ class LLMService:
         system = "Detecta inconsistencias legales entre documentos. Devuelve JSON con items."
         prompt = f"Documentos:\n{context}\n\nJSON:"
         return ModelProvider.generate(LLMService._audit_model(), prompt, system=system)
+
+    @staticmethod
+    def _normalize_extraction_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+        normalized: dict[str, Any] = {}
+        source = payload or {}
+        for key in LLMService.EXPECTED_EXTRACTION_KEYS:
+            value = source.get(key)
+            normalized[key] = value if value not in ("", "null", "None") else None
+        return normalized

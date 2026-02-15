@@ -38,6 +38,7 @@ services:
       GROQ_EXTRACT_MODEL: ${GROQ_EXTRACT_MODEL:-llama-3.3-70b-versatile}
       GROQ_RAG_MODEL: ${GROQ_RAG_MODEL:-llama-3.1-8b-instant}
       GROQ_AUDIT_MODEL: ${GROQ_AUDIT_MODEL:-llama-3.3-70b-versatile}
+      TECH_SHEET_V2_ENABLED: ${TECH_SHEET_V2_ENABLED:-true}
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
@@ -171,6 +172,7 @@ services:
       GROQ_EXTRACT_MODEL: ${GROQ_EXTRACT_MODEL:-llama-3.3-70b-versatile}
       GROQ_RAG_MODEL: ${GROQ_RAG_MODEL:-llama-3.1-8b-instant}
       GROQ_AUDIT_MODEL: ${GROQ_AUDIT_MODEL:-llama-3.3-70b-versatile}
+      TECH_SHEET_V2_ENABLED: ${TECH_SHEET_V2_ENABLED:-true}
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin

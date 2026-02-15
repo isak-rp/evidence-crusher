@@ -141,6 +141,14 @@ def ask_document_chat(doc_id: str, question: str):
     return {"answer": "Error consultando el modelo.", "sources": []}
 
 
+@st.cache_data(ttl=5, show_spinner=False)
+def get_technical_sheet_cached(case_id: str):
+    res = safe_request('GET', f"{API_URL}/{case_id}/technical-sheet", timeout=10)
+    if res and res.status_code == 200:
+        return res.json()
+    return None
+
+
 def get_task_status(task_id: str):
     res = safe_request('GET', f"{BACKEND_HOST}/api/v1/tasks/{task_id}", timeout=10)
     if res and res.status_code == 200:
@@ -238,6 +246,16 @@ def looks_like_duplicate_case_error(response) -> bool:
         "constraint",
     ]
     return any(marker in haystack for marker in duplicate_markers)
+
+
+def risk_badge(level: str) -> str:
+    level = (level or "").upper()
+    return {
+        "CRITICAL": "🔴 CRITICAL",
+        "HIGH": "🟠 HIGH",
+        "MEDIUM": "🟡 MEDIUM",
+        "LOW": "🟢 LOW",
+    }.get(level, "⚪ UNKNOWN")
 
 
 # --- SIDEBAR: GESTIÓN DE CASOS ---
@@ -585,9 +603,114 @@ if selected_case_id:
                                     doc_id=None,
                                     filename=None,
                                 )
+                            get_technical_sheet_cached.clear()
                             st.rerun()
                         else:
                             st.error("Error al analizar.")
+
+            st.divider()
+            st.markdown("### 🧠 Auditor Integral 360°")
+            ctl_a, ctl_b = st.columns([1, 2])
+            with ctl_a:
+                if st.button("🏗️ Construir Ficha 360", key="build_techsheet_btn"):
+                    with st.spinner("Construyendo ficha técnica 360..."):
+                        res = safe_request('POST', f"{API_URL}/{selected_case_id}/build-technical-sheet", timeout=30)
+                        if res and res.status_code == 200:
+                            payload = res.json()
+                            st.success(f"En cola: {payload.get('task_id', 'build')}")
+                            if payload.get("task_id"):
+                                register_task(
+                                    payload["task_id"],
+                                    action="Construir ficha técnica 360",
+                                    doc_id=None,
+                                    filename=None,
+                                )
+                            get_technical_sheet_cached.clear()
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ No se pudo encolar la construcción de ficha 360.")
+            with ctl_b:
+                if st.button("🔄 Refrescar Ficha 360", key="refresh_techsheet_btn"):
+                    get_technical_sheet_cached.clear()
+                    st.rerun()
+
+            technical_sheet = get_technical_sheet_cached(selected_case_id)
+            if technical_sheet:
+                summary = technical_sheet.get("executive_summary", {})
+                overall = (summary.get("overall_status") or "YELLOW").upper()
+                semaphore = {
+                    "RED": "🔴 CRÍTICO",
+                    "YELLOW": "🟡 ALERTA",
+                    "GREEN": "🟢 BLINDADO",
+                }.get(overall, "🟡 ALERTA")
+                st.markdown(f"#### 🚦 Semáforo General: {semaphore}")
+                st.info(summary.get("litis_narrative") or "Narrativa no disponible.")
+                high_alerts = summary.get("high_impact_alerts") or []
+                if high_alerts:
+                    st.markdown("**⚠️ Alertas de Alto Impacto**")
+                    for msg in high_alerts:
+                        st.warning(msg)
+
+                pillars = technical_sheet.get("pillars") or {}
+                fx_a, fx_b, fx_c = st.columns(3)
+                only_critical = fx_a.checkbox("Solo críticos", value=False, key="tech_only_critical")
+                only_missing = fx_b.checkbox("Solo missing", value=False, key="tech_only_missing")
+                only_conflict = fx_c.checkbox("Solo conflictos", value=False, key="tech_only_conflict")
+                for pillar_name, facts in pillars.items():
+                    filtered_facts = []
+                    for fact in facts:
+                        if only_critical and (fact.get("risk_level") or "").upper() != "CRITICAL":
+                            continue
+                        if only_missing and (fact.get("truth_status") or "").upper() != "MISSING":
+                            continue
+                        if only_conflict and (fact.get("truth_status") or "").upper() != "CONFLICT":
+                            continue
+                        filtered_facts.append(fact)
+                    with st.expander(f"{pillar_name} ({len(facts)})", expanded=False):
+                        if not filtered_facts:
+                            st.caption("Sin datos.")
+                            continue
+                        for fact in filtered_facts:
+                            row = st.columns([2, 2, 2, 1, 1])
+                            row[0].markdown(f"**{fact.get('field_key', '-') }**")
+                            row[1].write(fact.get("value_raw") or "-")
+                            row[2].caption(f"{risk_badge(fact.get('risk_level', ''))} · {fact.get('truth_status', '-')}")
+                            src_doc = fact.get("source_doc_id")
+                            src_page = fact.get("source_page")
+                            src_bbox = fact.get("source_bbox")
+                            fact_id = fact.get("id", "")
+                            if src_doc and src_page:
+                                if row[3].button("🔗 Ver Fuente", key=f"tech_src_{fact_id}"):
+                                    set_viewer_state(src_doc, page=src_page, bbox=src_bbox)
+                                    st.rerun()
+                            else:
+                                row[3].button("🔗 Ver Fuente", key=f"tech_src_dis_{fact_id}", disabled=True)
+                            if row[4].button("ℹ️ Detalle", key=f"tech_detail_{fact_id}"):
+                                st.session_state[f"show_detail_{fact_id}"] = not st.session_state.get(f"show_detail_{fact_id}", False)
+                            if st.session_state.get(f"show_detail_{fact_id}", False):
+                                st.caption(f"Regla: {fact.get('rule_applied') or '-'}")
+                                st.code(str(fact.get("value_normalized") or {}))
+                                excerpt = fact.get("source_text_excerpt")
+                                if excerpt:
+                                    st.write(excerpt)
+                                if (fact.get("risk_level") or "").upper() == "CRITICAL":
+                                    st.error(f"Qué faltó: {fact.get('why_critical') or 'Evidencia crítica ausente.'}")
+                                    st.info(f"Qué documento lo resolvería: {fact.get('evidence_hint') or 'Agregar documento obligatorio del campo.'}")
+
+                conflicts = technical_sheet.get("conflicts") or []
+                if conflicts:
+                    st.markdown("#### ⚖️ Conflictos Detectados")
+                    for c in conflicts:
+                        st.error(f"{c.get('field_key')}: {c.get('value_raw')}")
+                missing_required = technical_sheet.get("missing_required_docs") or []
+                if missing_required:
+                    st.markdown("#### 📌 Faltantes Obligatorios")
+                    for alert in missing_required:
+                        req = alert.get("required_doc_type") or "DOCUMENTO_OBLIGATORIO"
+                        field_key = alert.get("field_key") or "campo"
+                        st.warning(f"{alert.get('message')} · Campo: `{field_key}` · Documento requerido: `{req}`")
+            else:
+                st.caption("Construye la Ficha 360 para ver semáforo, narrativa y smart fields.")
 
         # TAB 3: CONFIGURACIÓN
         with tab_config:
