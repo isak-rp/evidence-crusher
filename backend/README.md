@@ -11,3 +11,9 @@ El cerebro de la aplicación. Aquí reside la lógica de IA, OCR y gestión de d
 ## Reglas
 - **Separation of Concerns:** Un endpoint nunca debe contener lógica de negocio compleja. Debe llamar a un `service`.
 - **Typing:** Todo debe tener tipos estrictos.
+
+## Tests
+- Instalar dependencias de pruebas:
+  - `pip install -r requirements-dev.txt`
+- Ejecutar suite legal sintetica:
+  - `pytest tests -q`

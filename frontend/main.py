@@ -637,6 +637,25 @@ if selected_case_id:
             technical_sheet = get_technical_sheet_cached(selected_case_id)
             if technical_sheet:
                 summary = technical_sheet.get("executive_summary", {})
+                conflicts = technical_sheet.get("conflicts") or []
+                if conflicts:
+                    st.markdown("#### ⚖️ Conflictos Detectados (Prioridad)")
+                    for c in conflicts:
+                        c_key = c.get("field_key", "-")
+                        c_val = c.get("value_raw", "-")
+                        st.markdown(
+                            f"<div style='border-left:4px solid #ef4444;padding:8px 12px;"
+                            f"background:rgba(239,68,68,0.08);border-radius:8px;margin-bottom:8px;'>"
+                            f"<strong>🔴 {c_key}</strong><br>{c_val}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        src_doc = c.get("source_doc_id")
+                        src_page = c.get("source_page")
+                        src_bbox = c.get("source_bbox")
+                        if src_doc and src_page and st.button("🔗 Ver Fuente Conflicto", key=f"conf_src_{c.get('id')}"):
+                            set_viewer_state(src_doc, page=src_page, bbox=src_bbox)
+                            st.rerun()
+
                 overall = (summary.get("overall_status") or "YELLOW").upper()
                 semaphore = {
                     "RED": "🔴 CRÍTICO",
@@ -645,6 +664,20 @@ if selected_case_id:
                 }.get(overall, "🟡 ALERTA")
                 st.markdown(f"#### 🚦 Semáforo General: {semaphore}")
                 st.info(summary.get("litis_narrative") or "Narrativa no disponible.")
+                narrative_mode = summary.get("narrative_mode", "DETERMINISTIC")
+                st.caption(f"Modo narrativa: {narrative_mode}")
+                scores = summary.get("dimension_scores") or {}
+                if scores:
+                    s1, s2, s3 = st.columns(3)
+                    with s1:
+                        eco = scores.get("economico") or {}
+                        st.metric("Económico", f"{eco.get('score', 0)} / 100", eco.get("level", "N/A"))
+                    with s2:
+                        doc = scores.get("documental") or {}
+                        st.metric("Documental", f"{doc.get('score', 0)} / 100", doc.get("level", "N/A"))
+                    with s3:
+                        comp = scores.get("compliance") or {}
+                        st.metric("Compliance", f"{comp.get('score', 0)} / 100", comp.get("level", "N/A"))
                 high_alerts = summary.get("high_impact_alerts") or []
                 if high_alerts:
                     st.markdown("**⚠️ Alertas de Alto Impacto**")
@@ -655,7 +688,8 @@ if selected_case_id:
                 fx_a, fx_b, fx_c = st.columns(3)
                 only_critical = fx_a.checkbox("Solo críticos", value=False, key="tech_only_critical")
                 only_missing = fx_b.checkbox("Solo missing", value=False, key="tech_only_missing")
-                only_conflict = fx_c.checkbox("Solo conflictos", value=False, key="tech_only_conflict")
+                only_conflict = fx_c.checkbox("Solo conflictos", value=True, key="tech_only_conflict")
+                only_authority = st.checkbox("Solo autoridad", value=False, key="tech_only_authority")
                 for pillar_name, facts in pillars.items():
                     filtered_facts = []
                     for fact in facts:
@@ -664,6 +698,8 @@ if selected_case_id:
                         if only_missing and (fact.get("truth_status") or "").upper() != "MISSING":
                             continue
                         if only_conflict and (fact.get("truth_status") or "").upper() != "CONFLICT":
+                            continue
+                        if only_authority and (fact.get("party_side") or "").upper() != "AUTORIDAD":
                             continue
                         filtered_facts.append(fact)
                     with st.expander(f"{pillar_name} ({len(facts)})", expanded=False):
@@ -697,11 +733,23 @@ if selected_case_id:
                                     st.error(f"Qué faltó: {fact.get('why_critical') or 'Evidencia crítica ausente.'}")
                                     st.info(f"Qué documento lo resolvería: {fact.get('evidence_hint') or 'Agregar documento obligatorio del campo.'}")
 
-                conflicts = technical_sheet.get("conflicts") or []
-                if conflicts:
-                    st.markdown("#### ⚖️ Conflictos Detectados")
-                    for c in conflicts:
-                        st.error(f"{c.get('field_key')}: {c.get('value_raw')}")
+                cmp_empresa = [f for f in (technical_sheet.get("facts") or []) if (f.get("party_side") or "").upper() == "EMPRESA"]
+                cmp_autoridad = [f for f in (technical_sheet.get("facts") or []) if (f.get("party_side") or "").upper() == "AUTORIDAD"]
+                cmp_trabajador = [f for f in (technical_sheet.get("facts") or []) if (f.get("party_side") or "").upper() == "TRABAJADOR"]
+                st.markdown("#### 🧭 Comparativo de Fuentes")
+                col_emp, col_aut, col_tra = st.columns(3)
+                with col_emp:
+                    st.markdown("**🔵 Empresa**")
+                    for f in cmp_empresa[:8]:
+                        st.caption(f"{f.get('field_key')}: {f.get('value_raw')}")
+                with col_aut:
+                    st.markdown("**⚫ Autoridad**")
+                    for f in cmp_autoridad[:8]:
+                        st.caption(f"{f.get('field_key')}: {f.get('value_raw')}")
+                with col_tra:
+                    st.markdown("**🔴 Trabajador**")
+                    for f in cmp_trabajador[:8]:
+                        st.caption(f"{f.get('field_key')}: {f.get('value_raw')}")
                 missing_required = technical_sheet.get("missing_required_docs") or []
                 if missing_required:
                     st.markdown("#### 📌 Faltantes Obligatorios")

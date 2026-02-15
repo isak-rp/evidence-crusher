@@ -203,6 +203,11 @@ class TechnicalFact(Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     truth_status: Mapped[str] = mapped_column(String, nullable=False, default="FACT")
     rule_applied: Mapped[str | None] = mapped_column(String, nullable=True)
+    party_side: Mapped[str | None] = mapped_column(String, nullable=True)
+    conflict_group_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    evidence_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    precedence_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    legal_defense_strength: Mapped[str | None] = mapped_column(String, nullable=True)
     why_critical: Mapped[str | None] = mapped_column(Text, nullable=True)
     evidence_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -239,6 +244,8 @@ class TechnicalAlert(Base):
     severity: Mapped[str] = mapped_column(String, nullable=False)
     code: Mapped[str] = mapped_column(String, nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    dimension: Mapped[str | None] = mapped_column(String, nullable=True)
+    why_flagged: Mapped[str | None] = mapped_column(Text, nullable=True)
     required_doc_type: Mapped[str | None] = mapped_column(String, nullable=True)
     field_key: Mapped[str | None] = mapped_column(String, nullable=True)
     evidence_fact_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
@@ -263,6 +270,8 @@ class TechnicalSnapshot(Base):
     )
     overall_status: Mapped[str] = mapped_column(String, nullable=False, default="YELLOW")
     litis_narrative: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    narrative_mode: Mapped[str] = mapped_column(String, nullable=False, default="DETERMINISTIC")
+    dimension_scores: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     high_impact_alerts: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

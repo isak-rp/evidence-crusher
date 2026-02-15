@@ -23,6 +23,11 @@ class TechnicalFactResponse(BaseModel):
     confidence: float
     truth_status: str
     rule_applied: str | None = None
+    party_side: str | None = None
+    conflict_group_id: str | None = None
+    evidence_weight: float | None = None
+    precedence_rank: int | None = None
+    legal_defense_strength: str | None = None
     why_critical: str | None = None
     evidence_hint: str | None = None
     updated_at: datetime
@@ -35,6 +40,8 @@ class TechnicalAlertResponse(BaseModel):
     severity: str
     code: str
     message: str
+    dimension: str | None = None
+    why_flagged: str | None = None
     required_doc_type: str | None = None
     field_key: str | None = None
     evidence_fact_ids: list[str] | None = None
@@ -45,6 +52,8 @@ class ExecutiveSummaryResponse(BaseModel):
     overall_status: str
     litis_narrative: str
     high_impact_alerts: list[str] = []
+    dimension_scores: dict[str, dict] = {}
+    narrative_mode: str = "DETERMINISTIC"
 
 
 class TechnicalSheetResponse(BaseModel):

@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 class ExtractionService:
 
-    REGEX_MONEY = r"\$?\s?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)"
+    REGEX_MONEY = r"\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)"
+    REGEX_MONEY_FALLBACK = r"\b(\d{2,}(?:,\d{3})*(?:\.\d{2})?)\b"
     REGEX_DATE = r"(\d{1,2})\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+(?:de\s+)?(\d{4})|(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})"
 
     @staticmethod
@@ -140,10 +141,28 @@ class ExtractionService:
     def _apply_regex(text: str, dtype: str):
         try:
             if dtype == "money":
-                matches = re.findall(ExtractionService.REGEX_MONEY, text)
-                if matches:
-                    raw = matches[0]
+                lines = (text or "").splitlines()
+                salary_lines = [
+                    ln for ln in lines
+                    if any(k in ln.lower() for k in ("salario", "sueldo", "cuota", "sdi", "neto"))
+                ]
+                # 1) Prefer monto con simbolo $ en lineas de salario/sueldo.
+                for line in salary_lines:
+                    m = re.search(ExtractionService.REGEX_MONEY, line)
+                    if m:
+                        raw = m.group(1)
+                        return float(raw.replace(",", "")), raw
+                # 2) Luego cualquier monto con simbolo $ en el texto completo.
+                m = re.search(ExtractionService.REGEX_MONEY, text or "")
+                if m:
+                    raw = m.group(1)
                     return float(raw.replace(",", "")), raw
+                # 3) Fallback: numero monetario (2+ digitos) en lineas de salario.
+                for line in salary_lines:
+                    m = re.search(ExtractionService.REGEX_MONEY_FALLBACK, line)
+                    if m:
+                        raw = m.group(1)
+                        return float(raw.replace(",", "")), raw
 
             elif dtype == "date":
                 match = re.search(ExtractionService.REGEX_DATE, text, re.IGNORECASE)
