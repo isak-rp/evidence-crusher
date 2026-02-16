@@ -258,6 +258,69 @@ def risk_badge(level: str) -> str:
     }.get(level, "⚪ UNKNOWN")
 
 
+FIELD_LABELS = {
+    "start_date_real": "Fecha real de ingreso",
+    "termination_date": "Fecha de salida",
+    "termination_cause": "Motivo de terminación",
+    "salary_sd": "Salario diario",
+    "salary_sdi": "Salario diario integrado",
+    "claimed_amount": "Monto reclamado",
+    "closure_offer": "Oferta de cierre",
+    "contract_type": "Tipo de contrato",
+    "position": "Puesto",
+    "attendance_control": "Control de asistencia",
+    "imss_registration": "Registro en IMSS",
+    "repse_status": "Estatus REPSE",
+    "nom035_status": "Estatus NOM-035",
+    "reglamento_status": "Reglamento interior",
+    "comisiones_mixtas_status": "Comisiones mixtas",
+    "nda_status": "Confidencialidad",
+}
+
+
+def humanize_field_key(key: str) -> str:
+    if not key:
+        return "-"
+    if key in FIELD_LABELS:
+        return FIELD_LABELS[key]
+    clean = str(key).replace("_", " ").strip()
+    return clean[:1].upper() + clean[1:]
+
+
+def humanize_value(value):
+    if value is None:
+        return "-"
+    text = str(value).strip()
+    normalized = text.replace("_", " ").upper()
+    replacements = {
+        "AUSENTE": "No encontrado",
+        "PRESENTE": "Disponible",
+        "SIN COBERTURA": "Sin evidencia",
+        "INSUFICIENTE": "Información incompleta",
+        "VENCIDO": "Vencido",
+        "FACT": "Hecho",
+        "CLAIM": "Dicho por una de las partes",
+        "CONFLICT": "Conflicto entre documentos",
+        "MISSING": "Falta evidencia",
+    }
+    if normalized in replacements:
+        return replacements[normalized]
+    if "_" in text:
+        text = text.replace("_", " ")
+    return text
+
+
+def friendly_alert_text(message: str, field_key: str | None = None, required_doc_type: str | None = None) -> str:
+    msg = (message or "").strip()
+    if msg.startswith("FALTA_EVIDENCIA:"):
+        parts = msg.split(":")
+        raw_field = field_key or (parts[1] if len(parts) > 1 else "campo")
+        raw_doc = required_doc_type or (parts[2] if len(parts) > 2 else "documento")
+        return f"Falta evidencia para {humanize_field_key(raw_field)}. Documento sugerido: {humanize_field_key(raw_doc)}."
+    msg = msg.replace("_", " ")
+    return msg[:1].upper() + msg[1:] if msg else "Alerta de revisión."
+
+
 # --- SIDEBAR: GESTIÓN DE CASOS ---
 st.sidebar.header("📁 Mis Expedientes")
 
@@ -405,136 +468,172 @@ if selected_case_id:
 
             if show_full_uploader:
                 st.subheader("Subir")
-                uploaded_file = st.file_uploader("Archivo PDF/Imagen", type=["pdf", "png", "jpg", "jpeg"])
-                if uploaded_file and st.button("Guardar Archivo"):
+                uploaded_files = st.file_uploader(
+                    "Archivo PDF/Imagen",
+                    type=["pdf", "png", "jpg", "jpeg"],
+                    accept_multiple_files=True,
+                )
+                if uploaded_files and st.button("Guardar Archivo(s)"):
                     with st.spinner("Subiendo..."):
-                        files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
-                        data = {"case_id": selected_case_id, "doc_type": "DETECTANDO..."}
-                        r = safe_request('POST', f"{DOCS_URL}/", files=files, data=data, timeout=60)
-                        if r and r.status_code == 200:
-                            st.success("¡Subido!")
+                        uploaded_count = 0
+                        queued_classify = 0
+                        for uf in uploaded_files:
+                            files = {"file": (uf.name, uf, uf.type)}
+                            data = {"case_id": selected_case_id, "doc_type": "DETECTANDO..."}
+                            r = safe_request('POST', f"{DOCS_URL}/", files=files, data=data, timeout=60)
+                            if r and r.status_code == 200:
+                                uploaded_count += 1
+                                payload = r.json()
+                                doc_id = payload.get("document_id")
+                                if doc_id:
+                                    c_res = safe_request('POST', f"{DOCS_URL}/{doc_id}/process", timeout=60)
+                                    if c_res and c_res.status_code == 200:
+                                        c_payload = c_res.json()
+                                        if c_payload.get("task_id"):
+                                            register_task(
+                                                c_payload["task_id"],
+                                                action="Clasificar documento",
+                                                doc_id=doc_id,
+                                                filename=uf.name,
+                                            )
+                                            queued_classify += 1
+                        if uploaded_count > 0:
+                            st.success(f"Se guardaron {uploaded_count} archivo(s). Clasificación automática en progreso ({queued_classify}).")
                             st.session_state.show_upload_panel = False
+                            st.session_state[f"pending_index_prompt_{selected_case_id}"] = True
                             st.rerun()
                         else:
-                            st.error(f"Error: {r.text if r else 'Timeout'}")
+                            st.error("No se pudo guardar ningún archivo.")
 
             st.subheader("Expediente Digital")
-            st.caption("Leyenda: 🟢 listo | 🟡 pendiente")
+            st.caption("Estados: clasificado e indexado siempre visibles")
             has_active_doc_tasks = False
+            selection_key = f"selected_docs_{selected_case_id}"
+            if selection_key not in st.session_state:
+                st.session_state[selection_key] = []
             if docs:
+                doc_map = {d["id"]: d for d in docs}
+                selected_docs = [d for d in st.session_state[selection_key] if d in doc_map]
+                st.session_state[selection_key] = selected_docs
+
+                toolbar_left, toolbar_right = st.columns([4, 1])
+                with toolbar_left:
+                    act1, act2, act3, act4, act5, act6 = st.columns([0.9, 0.9, 1.0, 1.0, 1.1, 0.8])
+                with toolbar_right:
+                    st.caption(f"Seleccionados: {len(selected_docs)} de {len(docs)}")
+
+                if act1.button("☑️ Todo", key=f"sel_all_{selected_case_id}", use_container_width=True):
+                    st.session_state[selection_key] = [d["id"] for d in docs]
+                    st.rerun()
+                if act2.button("⬜ Limpiar", key=f"clear_sel_{selected_case_id}", use_container_width=True):
+                    st.session_state[selection_key] = []
+                    st.rerun()
+                if act3.button("🧠 Indexar", key=f"bulk_index_{selected_case_id}", disabled=len(selected_docs) == 0, use_container_width=True):
+                    pending_to_index = [doc_map[doc_id] for doc_id in selected_docs if not bool(doc_map[doc_id].get("is_indexed"))]
+                    if not pending_to_index:
+                        st.info("Los documentos seleccionados ya están indexados.")
+                    else:
+                        for doc in pending_to_index:
+                            res = safe_request('POST', f"{DOCS_URL}/{doc['id']}/embed", timeout=120)
+                            if res and res.status_code == 200:
+                                payload = res.json()
+                                if payload.get("task_id"):
+                                    register_task(
+                                        payload["task_id"],
+                                        action="Indexar embeddings",
+                                        doc_id=doc["id"],
+                                        filename=doc["filename"],
+                                    )
+                        st.success(f"Indexación en cola para {len(pending_to_index)} documento(s).")
+                        st.rerun()
+                if act4.button("🗑️ Borrar", key=f"bulk_delete_{selected_case_id}", disabled=len(selected_docs) == 0, use_container_width=True):
+                    deleted = 0
+                    for doc_id in selected_docs:
+                        res = safe_request('DELETE', f"{DOCS_URL}/{doc_id}")
+                        if res and res.status_code == 200:
+                            deleted += 1
+                    st.session_state[selection_key] = []
+                    st.success(f"Se eliminaron {deleted} documento(s).")
+                    st.rerun()
+                if act5.button("👁️ Ver", key=f"bulk_view_{selected_case_id}", disabled=len(selected_docs) != 1, use_container_width=True):
+                    only_doc_id = selected_docs[0]
+                    set_viewer_state(only_doc_id, page=1, bbox=None)
+                    st.rerun()
+                if act6.button("↻", key=f"refresh_docs_{selected_case_id}", use_container_width=True):
+                    clear_cache()
+                    st.rerun()
+
+                st.markdown("---")
+                hdr = st.columns([0.6, 4.5, 2.2, 2.2])
+                hdr[0].caption("Sel.")
+                hdr[1].caption("Documento")
+                hdr[2].caption("Clasificación")
+                hdr[3].caption("Indexación")
+
+                all_classified = True
                 for doc in docs:
-                    doc_type = doc.get("doc_type") or "SIN_CLASIFICAR"
                     is_classified, is_indexed, chunk_count, indexed_chunk_count = doc_pipeline_status(doc)
-                    icon = "📄"
-                    label_display = f"{doc_type}"
-                    if "REVISION_REQUERIDA" in doc_type:
-                        icon = "⚠️"
-                        label_display = ":red[REVISIÓN REQUERIDA]"
-                    elif "CONTRATO" in doc_type:
-                        icon = "🤝"
-                    elif "DEMANDA" in doc_type:
-                        icon = "⚖️"
+                    if not is_classified:
+                        all_classified = False
+                    doc_id = doc["id"]
+                    check_key = f"doc_sel_{selected_case_id}_{doc_id}"
+                    st.session_state[check_key] = doc_id in st.session_state[selection_key]
+                    row = st.columns([0.6, 4.5, 2.2, 2.2])
+                    checked = row[0].checkbox("", key=check_key, label_visibility="collapsed")
+                    if checked and doc_id not in st.session_state[selection_key]:
+                        st.session_state[selection_key].append(doc_id)
+                    if (not checked) and doc_id in st.session_state[selection_key]:
+                        st.session_state[selection_key].remove(doc_id)
 
-                    with st.expander(f"{icon} {label_display} - {doc['filename']}"):
-                        classify_badge = "🟢 Clasificado" if is_classified else "🟡 Sin clasificar"
-                        index_badge = (
-                            f"🟢 Indexado ({indexed_chunk_count}/{chunk_count})"
-                            if is_indexed
-                            else f"🟡 Sin indexar ({indexed_chunk_count}/{chunk_count})"
-                        )
-                        st.markdown(f"{classify_badge}  |  {index_badge}")
+                    doc_type = doc.get("doc_type") or "SIN_CLASIFICAR"
+                    row[1].markdown(f"**{doc['filename']}**  \n:gray[{humanize_field_key(doc_type)}]")
+                    row[2].caption("🟢 Listo" if is_classified else "🟡 En proceso")
+                    row[3].caption(
+                        f"🟢 Listo ({indexed_chunk_count}/{chunk_count})"
+                        if is_indexed
+                        else f"🟡 Pendiente ({indexed_chunk_count}/{chunk_count})"
+                    )
 
-                        if "REVISION_REQUERIDA" in doc_type:
-                            st.warning("⚠️ Documento fuera de norma patronal.")
+                    classify_tid, classify_state = find_latest_doc_task(doc_id, "Clasificar documento")
+                    if classify_state in {"PENDING", "STARTED"}:
+                        has_active_doc_tasks = True
+                        should_force_refresh = True
+                    embed_tid, embed_state = find_latest_doc_task(doc_id, "Indexar embeddings")
+                    if embed_state in {"PENDING", "STARTED"}:
+                        has_active_doc_tasks = True
+                        should_force_refresh = True
 
-                        c1, c2, c3, c4 = st.columns(4)
-                        # OCR
-                        classify_disabled = is_classified
-                        classify_help = "Documento ya clasificado." if classify_disabled else None
-                        if c1.button("⚡ Clasificar", key=f"ocr_{doc['id']}", disabled=classify_disabled, help=classify_help):
-                            with st.spinner("Leyendo..."):
-                                res = safe_request('POST', f"{DOCS_URL}/{doc['id']}/process", timeout=60)
-                                if res and res.status_code == 200:
-                                    payload = res.json()
-                                    if payload.get("task_id"):
-                                        register_task(
-                                            payload["task_id"],
-                                            action="Clasificar documento",
-                                            doc_id=doc["id"],
-                                            filename=doc["filename"],
-                                        )
-                                    st.rerun()
-                                else:
-                                    st.error("Error.")
-                        # Embed
-                        index_disabled = is_indexed
-                        index_help = "Documento ya indexado." if index_disabled else None
-                        if c2.button("🧠 Indexar", key=f"emb_{doc['id']}", disabled=index_disabled, help=index_help):
-                            with st.spinner("Memorizando..."):
-                                res = safe_request('POST', f"{DOCS_URL}/{doc['id']}/embed", timeout=120)
-                                if res and res.status_code == 200:
-                                    payload = res.json()
-                                    if payload.get("task_id"):
-                                        register_task(
-                                            payload["task_id"],
-                                            action="Indexar embeddings",
-                                            doc_id=doc["id"],
-                                            filename=doc["filename"],
-                                        )
-                                else:
-                                    st.error("Error.")
-                        # Borrar Doc
-                        if c3.button("🗑️ Borrar", key=f"del_{doc['id']}"):
-                            with st.spinner("Eliminando..."):
-                                res = safe_request('DELETE', f"{DOCS_URL}/{doc['id']}")
-                                if res and res.status_code == 200:
-                                    st.success("Borrado.")
-                                    st.rerun()
-                                else:
-                                    st.error("Error.")
-                        # Ver Doc
-                        if c4.button("👁️ Ver", key=f"view_{doc['id']}"):
-                            set_viewer_state(doc["id"], page=1, bbox=None)
-                            st.rerun()
-
-                        classify_tid, classify_state = find_latest_doc_task(
-                            doc["id"],
-                            "Clasificar documento",
-                        )
-                        if classify_state in {"PENDING", "STARTED"}:
-                            has_active_doc_tasks = True
-                            should_force_refresh = True
-                            st.markdown(
-                                f"{active_loader_html(classify_state)}Clasificando documento... `{classify_tid}`",
-                                unsafe_allow_html=True,
-                            )
-
-                        embed_tid, embed_state = find_latest_doc_task(
-                            doc["id"],
-                            "Indexar embeddings",
-                        )
-                        if embed_state in {"PENDING", "STARTED"}:
-                            has_active_doc_tasks = True
-                            should_force_refresh = True
-                            st.markdown(
-                                f"{active_loader_html(embed_state)}Indexando embeddings... `{embed_tid}`",
-                                unsafe_allow_html=True,
-                            )
-
-                        doc_task_ids = []
-                        for tid in reversed(st.session_state.task_ids):
-                            meta = st.session_state.task_meta.get(tid, {})
-                            if meta.get("doc_id") == doc["id"]:
-                                doc_task_ids.append(tid)
-                            if len(doc_task_ids) >= 2:
-                                break
-                        for tid in doc_task_ids:
-                            snapshot = get_task_status(tid)
-                            state = snapshot.get("status", "ERROR")
-                            task_meta = st.session_state.task_meta.get(tid, {})
-                            st.caption(
-                                f"{status_icon(state)} {task_meta.get('action', 'Tarea')} [{state}]"
-                            )
+                prompt_key = f"pending_index_prompt_{selected_case_id}"
+                dismiss_key = f"dismissed_index_prompt_{selected_case_id}"
+                any_unindexed = any(not bool(d.get("is_indexed")) for d in docs)
+                if prompt_key not in st.session_state:
+                    st.session_state[prompt_key] = False
+                if dismiss_key not in st.session_state:
+                    st.session_state[dismiss_key] = False
+                if all_classified and any_unindexed and st.session_state[prompt_key] and not st.session_state[dismiss_key]:
+                    st.info("Todos los documentos ya están clasificados. ¿Deseas indexarlos ahora?")
+                    p1, p2 = st.columns(2)
+                    if p1.button("Sí, indexar ahora", key=f"prompt_index_now_{selected_case_id}"):
+                        to_index = [d for d in docs if not bool(d.get("is_indexed"))]
+                        for doc in to_index:
+                            res = safe_request('POST', f"{DOCS_URL}/{doc['id']}/embed", timeout=120)
+                            if res and res.status_code == 200:
+                                payload = res.json()
+                                if payload.get("task_id"):
+                                    register_task(
+                                        payload["task_id"],
+                                        action="Indexar embeddings",
+                                        doc_id=doc["id"],
+                                        filename=doc["filename"],
+                                    )
+                        st.session_state[prompt_key] = False
+                        st.session_state[dismiss_key] = True
+                        st.success("Indexación en cola.")
+                        st.rerun()
+                    if p2.button("Más tarde", key=f"prompt_index_later_{selected_case_id}"):
+                        st.session_state[dismiss_key] = True
+                        st.session_state[prompt_key] = False
+                        st.rerun()
             else:
                 st.info("Carpeta vacía.")
 
@@ -547,7 +646,8 @@ if selected_case_id:
 
         # TAB 2: FICHA TÉCNICA
         with tab_info:
-            st.markdown("### 🕵️ Inteligencia Artificial")
+            technical_sheet = get_technical_sheet_cached(selected_case_id)
+            st.markdown("### 🧾 Resumen rápido con fuentes")
             meta = case.get("metadata_info")
             col_met, col_btn = st.columns([3, 1])
             with col_met:
@@ -577,6 +677,19 @@ if selected_case_id:
                             "page": meta.get("daily_salary_page"),
                             "bbox": meta.get("daily_salary_bbox"),
                         })
+                # Fallback a ficha técnica cuando metadata tradicional no tiene todos los datos.
+                facts = (technical_sheet or {}).get("facts") or []
+                facts_by_key = {f.get("field_key"): f for f in facts}
+                has_salary = any("Salario" in f["label"] for f in fields)
+                if not has_salary and facts_by_key.get("salary_sd"):
+                    fs = facts_by_key.get("salary_sd")
+                    fields.append({
+                        "label": "💰 Salario",
+                        "value": f"${fs.get('value_raw')}" if fs.get("value_raw") is not None else "-",
+                        "doc_id": fs.get("source_doc_id"),
+                        "page": fs.get("source_page"),
+                        "bbox": fs.get("source_bbox"),
+                    })
                 if fields:
                     for i, field in enumerate(fields):
                         row = st.columns([2, 1])
@@ -634,19 +747,19 @@ if selected_case_id:
                     get_technical_sheet_cached.clear()
                     st.rerun()
 
-            technical_sheet = get_technical_sheet_cached(selected_case_id)
             if technical_sheet:
                 summary = technical_sheet.get("executive_summary", {})
                 conflicts = technical_sheet.get("conflicts") or []
                 if conflicts:
                     st.markdown("#### ⚖️ Conflictos Detectados (Prioridad)")
-                    for c in conflicts:
-                        c_key = c.get("field_key", "-")
+                    to_show = conflicts[:3]
+                    for c in to_show:
+                        c_key = humanize_field_key(c.get("field_key", "-"))
                         c_val = c.get("value_raw", "-")
                         st.markdown(
                             f"<div style='border-left:4px solid #ef4444;padding:8px 12px;"
                             f"background:rgba(239,68,68,0.08);border-radius:8px;margin-bottom:8px;'>"
-                            f"<strong>🔴 {c_key}</strong><br>{c_val}</div>",
+                            f"<strong>🔴 {c_key}</strong><br>{humanize_value(c_val)}</div>",
                             unsafe_allow_html=True,
                         )
                         src_doc = c.get("source_doc_id")
@@ -655,6 +768,29 @@ if selected_case_id:
                         if src_doc and src_page and st.button("🔗 Ver Fuente Conflicto", key=f"conf_src_{c.get('id')}"):
                             set_viewer_state(src_doc, page=src_page, bbox=src_bbox)
                             st.rerun()
+                    if len(conflicts) > 3:
+                        with st.expander(f"Ver todos los conflictos ({len(conflicts)})", expanded=False):
+                            for c in conflicts[3:]:
+                                c_key = humanize_field_key(c.get("field_key", "-"))
+                                st.error(f"{c_key}: {humanize_value(c.get('value_raw', '-'))}")
+                                src_doc = c.get("source_doc_id")
+                                src_page = c.get("source_page")
+                                src_bbox = c.get("source_bbox")
+                                if src_doc and src_page:
+                                    if st.button("🔗 Ver Fuente Conflicto", key=f"conf_src_more_{c.get('id')}"):
+                                        set_viewer_state(src_doc, page=src_page, bbox=src_bbox)
+                                        st.rerun()
+
+                missing_required = technical_sheet.get("missing_required_docs") or []
+                if missing_required:
+                    st.markdown("#### 📌 Documentos obligatorios faltantes")
+                    for alert in missing_required:
+                        req = alert.get("required_doc_type") or "DOCUMENTO_OBLIGATORIO"
+                        field_key = alert.get("field_key") or "campo"
+                        st.warning(
+                            f"{friendly_alert_text(alert.get('message', ''), field_key, req)} "
+                            f"(Campo: {humanize_field_key(field_key)})."
+                        )
 
                 overall = (summary.get("overall_status") or "YELLOW").upper()
                 semaphore = {
@@ -671,18 +807,22 @@ if selected_case_id:
                     s1, s2, s3 = st.columns(3)
                     with s1:
                         eco = scores.get("economico") or {}
-                        st.metric("Económico", f"{eco.get('score', 0)} / 100", eco.get("level", "N/A"))
+                        st.metric("Riesgo Económico", f"{eco.get('score', 0)} / 100", eco.get("level", "N/A"))
                     with s2:
                         doc = scores.get("documental") or {}
-                        st.metric("Documental", f"{doc.get('score', 0)} / 100", doc.get("level", "N/A"))
+                        st.metric("Riesgo Documental", f"{doc.get('score', 0)} / 100", doc.get("level", "N/A"))
                     with s3:
                         comp = scores.get("compliance") or {}
-                        st.metric("Compliance", f"{comp.get('score', 0)} / 100", comp.get("level", "N/A"))
+                        st.metric("Riesgo de Cumplimiento", f"{comp.get('score', 0)} / 100", comp.get("level", "N/A"))
                 high_alerts = summary.get("high_impact_alerts") or []
                 if high_alerts:
                     st.markdown("**⚠️ Alertas de Alto Impacto**")
-                    for msg in high_alerts:
-                        st.warning(msg)
+                    for msg in high_alerts[:3]:
+                        st.warning(friendly_alert_text(msg))
+                    if len(high_alerts) > 3:
+                        with st.expander(f"Ver todas las alertas ({len(high_alerts)})", expanded=False):
+                            for msg in high_alerts[3:]:
+                                st.warning(friendly_alert_text(msg))
 
                 pillars = technical_sheet.get("pillars") or {}
                 fx_a, fx_b, fx_c = st.columns(3)
@@ -708,9 +848,11 @@ if selected_case_id:
                             continue
                         for fact in filtered_facts:
                             row = st.columns([2, 2, 2, 1, 1])
-                            row[0].markdown(f"**{fact.get('field_key', '-') }**")
-                            row[1].write(fact.get("value_raw") or "-")
-                            row[2].caption(f"{risk_badge(fact.get('risk_level', ''))} · {fact.get('truth_status', '-')}")
+                            row[0].markdown(f"**{humanize_field_key(fact.get('field_key', '-'))}**")
+                            row[1].write(humanize_value(fact.get("value_raw") or "-"))
+                            row[2].caption(
+                                f"{risk_badge(fact.get('risk_level', ''))} · {humanize_value(fact.get('truth_status', '-'))}"
+                            )
                             src_doc = fact.get("source_doc_id")
                             src_page = fact.get("source_page")
                             src_bbox = fact.get("source_bbox")
@@ -741,22 +883,15 @@ if selected_case_id:
                 with col_emp:
                     st.markdown("**🔵 Empresa**")
                     for f in cmp_empresa[:8]:
-                        st.caption(f"{f.get('field_key')}: {f.get('value_raw')}")
+                        st.caption(f"{humanize_field_key(f.get('field_key'))}: {humanize_value(f.get('value_raw'))}")
                 with col_aut:
                     st.markdown("**⚫ Autoridad**")
                     for f in cmp_autoridad[:8]:
-                        st.caption(f"{f.get('field_key')}: {f.get('value_raw')}")
+                        st.caption(f"{humanize_field_key(f.get('field_key'))}: {humanize_value(f.get('value_raw'))}")
                 with col_tra:
                     st.markdown("**🔴 Trabajador**")
                     for f in cmp_trabajador[:8]:
-                        st.caption(f"{f.get('field_key')}: {f.get('value_raw')}")
-                missing_required = technical_sheet.get("missing_required_docs") or []
-                if missing_required:
-                    st.markdown("#### 📌 Faltantes Obligatorios")
-                    for alert in missing_required:
-                        req = alert.get("required_doc_type") or "DOCUMENTO_OBLIGATORIO"
-                        field_key = alert.get("field_key") or "campo"
-                        st.warning(f"{alert.get('message')} · Campo: `{field_key}` · Documento requerido: `{req}`")
+                        st.caption(f"{humanize_field_key(f.get('field_key'))}: {humanize_value(f.get('value_raw'))}")
             else:
                 st.caption("Construye la Ficha 360 para ver semáforo, narrativa y smart fields.")
 
