@@ -1,0 +1,6 @@
+outs:
+- md5: dc094a5209600dd36d11bf88a2c83985.dir
+  size: 2798
+  nfiles: 11
+  hash: md5
+  path: techsheet_v1

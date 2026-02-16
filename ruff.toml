@@ -1,0 +1,21 @@
+target-version = "py310"
+line-length = 100
+
+# Pragmatic baseline: catch real defects and keep imports tidy.
+lint.select = [
+  "E9",   # syntax/runtime-like errors
+  "F",    # pyflakes
+  "I",    # import sorting
+]
+
+lint.ignore = [
+  "F401", # allow transitional unused imports while project evolves
+]
+
+exclude = [
+  ".venv",
+  "__pycache__",
+  ".ruff_cache",
+  "alembic",
+  "scripts/datasets",
+]

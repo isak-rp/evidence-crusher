@@ -251,11 +251,11 @@ def looks_like_duplicate_case_error(response) -> bool:
 def risk_badge(level: str) -> str:
     level = (level or "").upper()
     return {
-        "CRITICAL": "🔴 CRITICAL",
-        "HIGH": "🟠 HIGH",
-        "MEDIUM": "🟡 MEDIUM",
-        "LOW": "🟢 LOW",
-    }.get(level, "⚪ UNKNOWN")
+        "CRITICAL": "🔴 Crítico",
+        "HIGH": "🟠 Alto",
+        "MEDIUM": "🟡 Medio",
+        "LOW": "🟢 Bajo",
+    }.get(level, "⚪ Sin clasificar")
 
 
 FIELD_LABELS = {
@@ -302,6 +302,12 @@ def humanize_value(value):
         "CLAIM": "Dicho por una de las partes",
         "CONFLICT": "Conflicto entre documentos",
         "MISSING": "Falta evidencia",
+        "LOW": "Bajo",
+        "MEDIUM": "Medio",
+        "HIGH": "Alto",
+        "CRITICAL": "Crítico",
+        "DETERMINISTIC": "Determinístico",
+        "HYBRID LLM": "Híbrido con IA",
     }
     if normalized in replacements:
         return replacements[normalized]
@@ -749,9 +755,19 @@ if selected_case_id:
 
             if technical_sheet:
                 summary = technical_sheet.get("executive_summary", {})
+                missing_required = technical_sheet.get("missing_required_docs") or []
                 conflicts = technical_sheet.get("conflicts") or []
-                if conflicts:
-                    st.markdown("#### ⚖️ Conflictos Detectados (Prioridad)")
+                if missing_required:
+                    st.markdown("#### 📌 Documentos obligatorios faltantes")
+                    for alert in missing_required:
+                        req = alert.get("required_doc_type") or "DOCUMENTO_OBLIGATORIO"
+                        field_key = alert.get("field_key") or "campo"
+                        st.warning(
+                            f"{friendly_alert_text(alert.get('message', ''), field_key, req)} "
+                            f"(Campo: {humanize_field_key(field_key)})."
+                        )
+                elif conflicts:
+                    st.markdown("#### ⚖️ Posibles contradicciones detectadas")
                     to_show = conflicts[:3]
                     for c in to_show:
                         c_key = humanize_field_key(c.get("field_key", "-"))
@@ -765,11 +781,11 @@ if selected_case_id:
                         src_doc = c.get("source_doc_id")
                         src_page = c.get("source_page")
                         src_bbox = c.get("source_bbox")
-                        if src_doc and src_page and st.button("🔗 Ver Fuente Conflicto", key=f"conf_src_{c.get('id')}"):
+                        if src_doc and src_page and st.button("🔗 Ver documento fuente", key=f"conf_src_{c.get('id')}"):
                             set_viewer_state(src_doc, page=src_page, bbox=src_bbox)
                             st.rerun()
                     if len(conflicts) > 3:
-                        with st.expander(f"Ver todos los conflictos ({len(conflicts)})", expanded=False):
+                        with st.expander(f"Ver todas las contradicciones ({len(conflicts)})", expanded=False):
                             for c in conflicts[3:]:
                                 c_key = humanize_field_key(c.get("field_key", "-"))
                                 st.error(f"{c_key}: {humanize_value(c.get('value_raw', '-'))}")
@@ -777,20 +793,9 @@ if selected_case_id:
                                 src_page = c.get("source_page")
                                 src_bbox = c.get("source_bbox")
                                 if src_doc and src_page:
-                                    if st.button("🔗 Ver Fuente Conflicto", key=f"conf_src_more_{c.get('id')}"):
+                                    if st.button("🔗 Ver documento fuente", key=f"conf_src_more_{c.get('id')}"):
                                         set_viewer_state(src_doc, page=src_page, bbox=src_bbox)
                                         st.rerun()
-
-                missing_required = technical_sheet.get("missing_required_docs") or []
-                if missing_required:
-                    st.markdown("#### 📌 Documentos obligatorios faltantes")
-                    for alert in missing_required:
-                        req = alert.get("required_doc_type") or "DOCUMENTO_OBLIGATORIO"
-                        field_key = alert.get("field_key") or "campo"
-                        st.warning(
-                            f"{friendly_alert_text(alert.get('message', ''), field_key, req)} "
-                            f"(Campo: {humanize_field_key(field_key)})."
-                        )
 
                 overall = (summary.get("overall_status") or "YELLOW").upper()
                 semaphore = {
@@ -801,35 +806,40 @@ if selected_case_id:
                 st.markdown(f"#### 🚦 Semáforo General: {semaphore}")
                 st.info(summary.get("litis_narrative") or "Narrativa no disponible.")
                 narrative_mode = summary.get("narrative_mode", "DETERMINISTIC")
-                st.caption(f"Modo narrativa: {narrative_mode}")
+                st.caption(f"Modo de narrativa: {humanize_value(narrative_mode)}")
                 scores = summary.get("dimension_scores") or {}
                 if scores:
                     s1, s2, s3 = st.columns(3)
                     with s1:
                         eco = scores.get("economico") or {}
-                        st.metric("Riesgo Económico", f"{eco.get('score', 0)} / 100", eco.get("level", "N/A"))
+                        st.metric("Riesgo Económico", f"{eco.get('score', 0)} / 100", humanize_value(eco.get("level", "N/A")))
                     with s2:
                         doc = scores.get("documental") or {}
-                        st.metric("Riesgo Documental", f"{doc.get('score', 0)} / 100", doc.get("level", "N/A"))
+                        st.metric("Riesgo Documental", f"{doc.get('score', 0)} / 100", humanize_value(doc.get("level", "N/A")))
                     with s3:
                         comp = scores.get("compliance") or {}
-                        st.metric("Riesgo de Cumplimiento", f"{comp.get('score', 0)} / 100", comp.get("level", "N/A"))
+                        st.metric("Riesgo de Cumplimiento", f"{comp.get('score', 0)} / 100", humanize_value(comp.get("level", "N/A")))
                 high_alerts = summary.get("high_impact_alerts") or []
                 if high_alerts:
                     st.markdown("**⚠️ Alertas de Alto Impacto**")
-                    for msg in high_alerts[:3]:
+                    # Cuando hay faltantes obligatorios, priorizamos ese mensaje y suprimimos ruido de conflictos.
+                    visible_alerts = [
+                        a for a in high_alerts
+                        if (not missing_required) or ("CONFLICTO" not in str(a).upper() and "CONFLICT" not in str(a).upper())
+                    ]
+                    for msg in visible_alerts[:3]:
                         st.warning(friendly_alert_text(msg))
-                    if len(high_alerts) > 3:
-                        with st.expander(f"Ver todas las alertas ({len(high_alerts)})", expanded=False):
-                            for msg in high_alerts[3:]:
+                    if len(visible_alerts) > 3:
+                        with st.expander(f"Ver todas las alertas ({len(visible_alerts)})", expanded=False):
+                            for msg in visible_alerts[3:]:
                                 st.warning(friendly_alert_text(msg))
 
                 pillars = technical_sheet.get("pillars") or {}
                 fx_a, fx_b, fx_c = st.columns(3)
-                only_critical = fx_a.checkbox("Solo críticos", value=False, key="tech_only_critical")
-                only_missing = fx_b.checkbox("Solo missing", value=False, key="tech_only_missing")
-                only_conflict = fx_c.checkbox("Solo conflictos", value=True, key="tech_only_conflict")
-                only_authority = st.checkbox("Solo autoridad", value=False, key="tech_only_authority")
+                only_critical = fx_a.checkbox("Solo riesgo crítico", value=False, key="tech_only_critical")
+                only_missing = fx_b.checkbox("Solo faltantes de información", value=False, key="tech_only_missing")
+                only_conflict = fx_c.checkbox("Solo contradicciones", value=(len(missing_required) == 0), key="tech_only_conflict")
+                only_authority = st.checkbox("Solo fuentes de autoridad", value=False, key="tech_only_authority")
                 for pillar_name, facts in pillars.items():
                     filtered_facts = []
                     for fact in facts:

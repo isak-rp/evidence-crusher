@@ -1,57 +1,56 @@
-# --- 1. SEGURIDAD (CRÍTICO) ---
-# Nunca subas tus contraseñas o claves de API
+﻿# ------------------------------
+# Security / Secrets
+# ------------------------------
 .env
-.env.local
 .env.*
-!.env.example  # Excepción: Sí queremos subir un ejemplo de las variables (sin valores reales)
+!.env.example
 
-# --- 2. ENTORNOS VIRTUALES ---
-# Las librerías se instalan desde requirements.txt, no se sube la carpeta venv
+# ------------------------------
+# Python
+# ------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ------------------------------
+# Virtual environments
+# ------------------------------
 .venv/
 venv/
 env/
 ENV/
 
-# --- 3. PYTHON BASURA ---
-# Archivos compilados que genera Python automáticamente
-__pycache__/
-*.py[cod]
-*$py.class
-.pytest_cache/
-
-# --- 4. DATOS LOCALES Y UPLOADS ---
-# No subas los PDFs de prueba ni los datos de la base de datos local
+# ------------------------------
+# Local runtime data
+# ------------------------------
 uploaded_files/
-postgres_data/
-/data
 logs/
+data/
+postgres_data/
+*.sqlite3
+*.db
 
-# --- 5. CONFIGURACIÓN DE IDE ---
+# ------------------------------
+# IDE / Editor
+# ------------------------------
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# --- 6. SISTEMA OPERATIVO ---
+# ------------------------------
+# OS files
+# ------------------------------
 .DS_Store
 Thumbs.db
 
-# --- 7. DOCKER ---
-# A veces docker genera logs o carpetas temporales
-.docker/
-
-
-.cursorrules
-
-
-# Cache de modelos de IA
+# Ignorar caché de modelos de IA
+.cache/
 backend/.cache/
-__pycache__/
-*.pyc
-
-# Entornos virtuales
-venv/
-.env
-
-# Base de datos local
-backend/migrations/dev.db
+**/.cache/

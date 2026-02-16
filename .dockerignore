@@ -1,42 +1,57 @@
-.venv/
-__pycache__/
-.env
-.git/
-# --- SISTEMA DE CONTROL DE VERSIONES ---
+﻿# ------------------------------
+# VCS
+# ------------------------------
 .git
 .gitignore
 
-# --- PYTHON Y ENTORNOS VIRTUALES (¡CRÍTICO!) ---
-# Nunca copies el venv local, el contenedor creará el suyo propio
-.venv/
-venv/
-env/
+# ------------------------------
+# Python / build artifacts
+# ------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
-# --- VARIABLES DE ENTORNO Y SECRETOS ---
-# Docker debe leer esto al arrancar, no copiarlos dentro de la imagen fija
+# ------------------------------
+# Virtual environments
+# ------------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# ------------------------------
+# Secrets / local env
+# ------------------------------
 .env
 .env.local
+.env.*
 
-# --- ARCHIVOS DE SISTEMA Y IDE ---
+# ------------------------------
+# Local data and logs
+# ------------------------------
+uploaded_files/
+logs/
+data/
+postgres_data/
+*.sqlite3
+*.db
+
+# ------------------------------
+# DVC / MLOps local artifacts
+# ------------------------------
+.dvc/cache/
+.dvc/tmp/
+mlruns/
+mlartifacts/
+backend/.cache/
+
+# ------------------------------
+# IDE / OS noise
+# ------------------------------
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-
-# --- DATOS LOCALES Y TEMPORALES ---
-# No queremos "quemar" los PDFs de prueba dentro del código de la aplicación
-uploaded_files/
-data/
-logs/
-
-# --- DOCUMENTACIÓN IRRELEVANTE PARA PRODUCCIÓN ---
-README.md
-docs/
-docker-compose.yml
-
-.gitignore
-.cursorrules
-
