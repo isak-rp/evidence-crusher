@@ -1,8 +1,0 @@
-{
-  "case_id": "a64ba8c6-082f-4ed4-8477-fde945ad40bb",
-  "expected_fields": {
-    "start_date_real": { "value": "2015-06-24" },
-    "salary_sd": { "value": "15.0" },
-    "termination_cause": { "value": null }
-  }
-}

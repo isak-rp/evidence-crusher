@@ -1,8 +1,0 @@
-{
-  "case_id": "db94a47a-8388-4abb-923d-ff9503758bf4",
-  "expected_fields": {
-    "start_date_real": { "value": null },
-    "salary_sd": { "value": "150.0" },
-    "termination_cause": { "value": "RENUNCIA_VOLUNTARIA" }
-  }
-}
