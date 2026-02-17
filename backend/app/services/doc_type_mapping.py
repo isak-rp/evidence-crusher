@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from app.db.models import Document
 
-
 ALIASES: dict[str, str] = {
     "NOMINA_CFDI": "RECIBO_NOMINA",
     "CFDI_NOMINA": "RECIBO_NOMINA",

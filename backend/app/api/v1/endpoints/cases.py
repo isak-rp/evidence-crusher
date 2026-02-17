@@ -4,17 +4,16 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
-
 from app.db.models import Case, Document
 from app.db.session import get_db
 from app.schemas.cases import CaseCreate, CaseResponse
 from app.schemas.technical_sheet import TechnicalSheetResponse
-from app.tasks import extract_case_metadata as extract_case_metadata_task
-from app.tasks import build_technical_sheet as build_technical_sheet_task
 from app.services.technical_sheet import TechnicalSheetService
+from app.tasks import build_technical_sheet as build_technical_sheet_task
+from app.tasks import extract_case_metadata as extract_case_metadata_task
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
 router = APIRouter(tags=["cases"])
 

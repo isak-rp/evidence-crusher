@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-
 DOC_TYPE_PRECEDENCE = {
     "ECONOMICA": ("RECIBO_NOMINA", "CONTRATO_INDIVIDUAL", "DEMANDA_INICIAL"),
     "IDENTIDAD": ("ALTA_IMSS", "CONTRATO_INDIVIDUAL", "DEMANDA_INICIAL"),

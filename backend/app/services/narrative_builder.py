@@ -5,7 +5,6 @@ from typing import Any
 
 from app.services.llm import LLMService
 
-
 MONEY_OR_NUMBER_RE = re.compile(r"\$?\s?\d+(?:[.,]\d+)?")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}|\d{2}[/-]\d{2}[/-]\d{2,4}")
 
@@ -70,7 +69,7 @@ def build_hybrid_narrative(
         "No inventes cifras ni fechas; solo usa evidencias provistas.\n\n"
         f"Narrativa base:\n{deterministic_narrative}\n\n"
         f"Facts:\n- " + "\n- ".join(facts_context[:30]) + "\n\n"
-        f"Alerts:\n- " + "\n- ".join(alerts_context[:20]) + "\n\n"
+        "Alerts:\n- " + "\n- ".join(alerts_context[:20]) + "\n\n"
         "Resumen:"
     )
     try:

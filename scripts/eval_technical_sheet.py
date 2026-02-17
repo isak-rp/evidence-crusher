@@ -4,7 +4,6 @@ from pathlib import Path
 
 import requests
 
-
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 DATASET_ROOT = Path(__file__).parent / "datasets" / "techsheet_v1"
 

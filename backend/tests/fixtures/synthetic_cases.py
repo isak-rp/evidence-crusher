@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 CASE_INFLATION = {
     "case_id": "SYNTH-001",
     "documents": [

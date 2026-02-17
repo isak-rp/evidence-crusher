@@ -1,7 +1,8 @@
-﻿import time
-import streamlit as st
+﻿import os
+import time
+
 import requests
-import os
+import streamlit as st
 from streamlit_pdf_viewer import pdf_viewer
 
 # --- CONFIGURACIÓN DE LA APP ---

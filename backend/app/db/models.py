@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime, date
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import Vector
+
 # --- MODIFICACIÓN: Agregamos Integer y Text a los imports ---
-from sqlalchemy import DateTime, ForeignKey, String, func, Integer, Text, JSON, Float
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from pgvector.sqlalchemy import Vector
 
 
 class Base(DeclarativeBase):

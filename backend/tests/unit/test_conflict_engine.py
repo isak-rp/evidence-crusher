@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.services.compliance_rules import check_termination_compliance
 from app.services.conflict_engine import detect_conflicts
+
 from tests.fixtures.synthetic_cases import CASE_INFLATION, CASE_MISSING_DOCS, CASE_OVERTIME
 
 

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from uuid import UUID
+
+from app.db.models import Document, DocumentChunk
+from app.services.llm import LLMService
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from app.db.models import DocumentChunk, Document
-from app.services.llm import LLMService
 
 
 class AuditService:

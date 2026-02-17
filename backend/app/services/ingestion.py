@@ -1,14 +1,14 @@
-﻿import pdfplumber
-import pytesseract
-from sqlalchemy.orm import Session
-from uuid import UUID
-from pathlib import Path
-import logging
+﻿import logging
 import re
+from pathlib import Path
+from uuid import UUID
 
+import pdfplumber
+import pytesseract
 from app.db.models import Document, DocumentChunk
 from app.services.llm import LLMService
 from app.services.storage import StorageService
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

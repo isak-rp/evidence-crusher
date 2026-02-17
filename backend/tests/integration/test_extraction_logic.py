@@ -4,6 +4,7 @@ import re
 
 from app.services.conflict_engine import detect_conflicts
 from app.services.extraction import ExtractionService
+
 from tests.fixtures.ocr_mocks import MOCK_CONTRATO_TEXT, MOCK_DEMANDA_TEXT, MOCK_NOMINA_TEXT
 
 

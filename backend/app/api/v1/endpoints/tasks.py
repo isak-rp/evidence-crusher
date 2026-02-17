@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
-from celery.result import AsyncResult
-
 from app.celery_app import celery_app
+from celery.result import AsyncResult
+from fastapi import APIRouter
 
 router = APIRouter(tags=["tasks"])
 

@@ -3,15 +3,16 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
+from sqlalchemy import select
+
 from app.celery_app import celery_app
+from app.db.models import DocumentChunk
 from app.db.session import SessionLocal
-from app.services.ingestion import IngestionService
+from app.services.audit import AuditService
 from app.services.embeddings import EmbeddingService
 from app.services.extraction import ExtractionService
-from app.services.audit import AuditService
+from app.services.ingestion import IngestionService
 from app.services.technical_sheet import TechnicalSheetService
-from app.db.models import DocumentChunk
-from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 

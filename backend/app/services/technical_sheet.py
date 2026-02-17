@@ -4,10 +4,14 @@ import os
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import delete, select
-from sqlalchemy.orm import Session, selectinload
-
-from app.db.models import Case, Document, DocumentChunk, TechnicalAlert, TechnicalFact, TechnicalSnapshot
+from app.db.models import (
+    Case,
+    Document,
+    DocumentChunk,
+    TechnicalAlert,
+    TechnicalFact,
+    TechnicalSnapshot,
+)
 from app.schemas.technical_sheet import (
     ExecutiveSummaryResponse,
     TechnicalAlertResponse,
@@ -18,9 +22,16 @@ from app.services.compliance_rules import evaluate_compliance_docs
 from app.services.conflict_engine import make_conflict_group_id, resolve_precedence
 from app.services.doc_type_mapping import build_docs_by_canonical_type
 from app.services.embeddings import EmbeddingService
-from app.services.field_extractors import FIELD_SPECS, build_missing_message, doc_type_priority, parser_validity_score
+from app.services.field_extractors import (
+    FIELD_SPECS,
+    build_missing_message,
+    doc_type_priority,
+    parser_validity_score,
+)
 from app.services.narrative_builder import build_deterministic_narrative, build_hybrid_narrative
 from app.services.scoring_engine import compute_dimension_scores
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session, selectinload
 
 
 class TechnicalSheetService:

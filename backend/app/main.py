@@ -5,16 +5,15 @@ conectividad con la base de datos PostgreSQL y un endpoint
 de prueba para la lógica legal (LFT).
 """
 
+import os
 from decimal import Decimal
 from typing import Any
 
-import os
-
 import psycopg2
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 from psycopg2 import Error as PsycopgError
 from psycopg2.extras import RealDictCursor
+from pydantic import BaseModel
 
 from app.api.v1.endpoints.cases import router as cases_router
 from app.api.v1.endpoints.documents import router as documents_router

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-
 DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})|(\d{2}[/-]\d{2}[/-]\d{2,4})")
 
 

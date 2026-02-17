@@ -2,24 +2,22 @@
 
 from __future__ import annotations
 
-from uuid import UUID
-
+import mimetypes
 from datetime import datetime
 from pathlib import Path
+from uuid import UUID
 
+from app.db.models import Case, Document, DocumentChunk
+from app.db.session import get_db
+from app.services.embeddings import EmbeddingService
+from app.services.storage import StorageService
+from app.tasks import embed_document as embed_document_task
+from app.tasks import process_document as process_document_task
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
-import mimetypes
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from app.db.session import get_db
-from app.db.models import Case, Document, DocumentChunk
-from app.services.embeddings import EmbeddingService
-from app.services.storage import StorageService
-from app.tasks import process_document as process_document_task
-from app.tasks import embed_document as embed_document_task
 
 router = APIRouter()
 

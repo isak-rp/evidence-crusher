@@ -1,17 +1,16 @@
-﻿import re
+﻿import logging
+import re
 from datetime import datetime
 from pathlib import Path
-from sqlalchemy.orm import Session
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from uuid import UUID
-import logging
 
 import pdfplumber
-from app.services.llm import LLMService
-from app.services.storage import StorageService
 from app.db.models import CaseMetadata, Document, DocumentChunk
 from app.services.embeddings import EmbeddingService
+from app.services.llm import LLMService
+from app.services.storage import StorageService
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
 logger = logging.getLogger(__name__)
 
