@@ -37,6 +37,17 @@ postgres_data/
 *.db
 
 # ------------------------------
+# DVC / MLOps local artifacts
+# ------------------------------
+.dvc/cache/
+.dvc/tmp/
+mlruns/
+mlartifacts/
+.cache/
+backend/.cache/
+**/.cache/
+
+# ------------------------------
 # IDE / Editor
 # ------------------------------
 .vscode/
@@ -50,7 +61,7 @@ postgres_data/
 .DS_Store
 Thumbs.db
 
-# Ignorar caché de modelos de IA
-.cache/
-backend/.cache/
-**/.cache/
+# ------------------------------
+# Project-local tooling
+# ------------------------------
+.cursorrules
